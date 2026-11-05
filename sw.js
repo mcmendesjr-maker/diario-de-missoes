@@ -1,9 +1,9 @@
 // Service worker: deixa o app abrir sem internet.
 // Ao publicar uma versão nova, aumente o número abaixo.
-const VERSION = "v2";
+const VERSION = "v3";
 const CACHE = "missoes-" + VERSION;
 const SHELL = [
-  "./", "index.html", "style.css", "app.js", "firebase.js", "manifest.json",
+  "./", "index.html", "style.css", "app.js", "firebase.js", "manifest.json", "achievements.js",
   "icons/icon-192.png", "icons/icon-512.png"
 ];
 // Arquivos de fora que podem ser guardados (biblioteca do Firebase e fontes).

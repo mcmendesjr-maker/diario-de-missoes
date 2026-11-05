@@ -2,6 +2,7 @@
   --bg:#EEF1F6; --surface:#FFFFFF; --surface-2:#E3E8F0; --ink:#18202E; --muted:#5B6578; --line:#D3DAE5;
   --gold:#C98A00; --gold-soft:#FFF1CC; --pessoal:#D9534F; --pessoal-soft:#FBE3E2;
   --prof:#1C7F86; --prof-soft:#DAF0F1; --ok:#2E8B57;
+  --bronze:#A8662F; --prata:#8A96A6; --ouro:#C98A00; --diamante:#2A9FD6;
   --f-display:"Unbounded","Arial Black",system-ui,sans-serif;
   --f-body:"Nunito Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
@@ -10,7 +11,8 @@
 @media (prefers-color-scheme: dark){:root{
   --bg:#111723; --surface:#1A2232; --surface-2:#243046; --ink:#E8ECF4; --muted:#9AA5BA; --line:#2E3A52;
   --gold:#F2B630; --gold-soft:#3A2F12; --pessoal:#F07A72; --pessoal-soft:#3D2226;
-  --prof:#4CC3C9; --prof-soft:#163A3E; --ok:#5CCB8C; color-scheme:dark }}
+  --prof:#4CC3C9; --prof-soft:#163A3E; --ok:#5CCB8C;
+  --bronze:#D08A4E; --prata:#B7C2D0; --ouro:#F2B630; --diamante:#5CC8F5; color-scheme:dark }}
 
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -202,3 +204,43 @@ button{cursor:pointer}
 .how{margin:0;padding-left:20px;display:grid;gap:8px;font-size:14px}
 /* faixa atrás da barra de status quando o menu fica fixo no topo */
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:6}
+
+/* ===== v3 · conquistas ===== */
+.small{font-size:12px}
+h3.sub{font-family:var(--f-display);font-size:13px;margin:6px 0 0;color:var(--muted);letter-spacing:.02em}
+.trails{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.trail{display:flex;gap:12px;align-items:center;padding:10px 12px;border-radius:14px;background:var(--surface-2)}
+.medal{width:40px;height:40px;flex:none;border-radius:50%;display:grid;place-items:center;font-family:var(--f-display);font-size:14px;font-weight:700;
+  background:var(--line);color:var(--muted);border:3px solid var(--line)}
+.medal.bronze{background:var(--bronze);border-color:var(--bronze);color:#fff}
+.medal.prata{background:var(--prata);border-color:var(--prata);color:#fff}
+.medal.ouro{background:var(--ouro);border-color:var(--ouro);color:#fff}
+.medal.diamante{background:var(--diamante);border-color:var(--diamante);color:#fff;box-shadow:0 0 0 3px var(--surface),0 0 0 5px var(--diamante)}
+.tbody{flex:1;min-width:0;display:grid;gap:5px}
+.thead{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.thead b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tier{font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;color:#fff;margin-left:4px;vertical-align:1px}
+.tier.bronze{background:var(--bronze)}.tier.prata{background:var(--prata)}.tier.ouro{background:var(--ouro)}.tier.diamante{background:var(--diamante)}
+.pips{display:flex;gap:4px;flex:none}
+.pip{width:10px;height:10px;border-radius:50%;background:var(--line)}
+.pip.bronze{background:var(--bronze)}.pip.prata{background:var(--prata)}.pip.ouro{background:var(--ouro)}.pip.diamante{background:var(--diamante)}
+.tbar{height:6px;border-radius:99px;background:var(--surface);overflow:hidden}
+.tbar i{display:block;height:100%;border-radius:99px;background:var(--muted)}
+.tbar i.bronze{background:var(--bronze)}.tbar i.prata{background:var(--prata)}.tbar i.ouro{background:var(--ouro)}.tbar i.diamante{background:var(--diamante)}
+.tmeta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ach .a{align-items:flex-start}
+.a .xpline{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.a.on .xpline{color:var(--ink)}
+.a.secret:not(.on) .ic{background:var(--ink);color:var(--bg)}
+.a.secret.on{background:var(--prof-soft)}
+.a.secret.on .ic{background:var(--prof);color:var(--surface)}
+.achbanner{background:var(--ink);color:var(--bg);border-radius:14px;padding:12px 16px;font-weight:700;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.achbanner small{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.7}
+.achbanner .mono{color:var(--ouro)}
+.achbanner button{border:0;background:var(--ouro);color:#1B1400;border-radius:8px;padding:6px 12px;font-weight:700;flex:none}
+.titlebox{display:grid;gap:6px;padding:4px 12px 10px}
+.titlebox select{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font:inherit}
+/* evita que conteúdo largo empurre a página para os lados */
+.wrap > *, .view > *, .panel > *{min-width:0}
+.seg{flex-wrap:wrap;max-width:100%}
+.add{grid-template-columns:minmax(0,1fr)}

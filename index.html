@@ -66,6 +66,7 @@
   </nav>
 
   <div id="lvlBanner" hidden></div>
+  <div class="achbanner" id="achBanner" hidden></div>
   <p class="err" id="dbErr" hidden></p>
 
   <!-- Missões -->
@@ -113,8 +114,14 @@
       <div class="week" id="week"></div>
     </div>
     <div class="panel">
-      <div class="ph"><h2>Conquistas</h2><span class="label mono" id="achCount">0/8</span></div>
-      <div class="ach" id="ach"></div>
+      <div class="ph"><h2>Conquistas</h2><span class="label mono" id="achCount">0/83</span></div>
+      <p class="muted" id="achBonus">+0 XP de bônus</p>
+      <h3 class="sub">Trilhas</h3>
+      <ul class="trails" id="trails"></ul>
+      <h3 class="sub">Especiais</h3>
+      <div class="ach" id="singles"></div>
+      <h3 class="sub">Secretas</h3>
+      <div class="ach" id="secrets"></div>
     </div>
   </section>
 
@@ -144,6 +151,11 @@
   <section class="view" id="view-conta" hidden>
     <div class="panel">
       <div class="me"><img id="avatarBig" alt="" referrerpolicy="no-referrer" hidden><div><b id="userName"></b><span id="userEmail"></span></div></div>
+      <div class="titlebox">
+        <label for="titleSel"><b>Seu título</b></label>
+        <select id="titleSel"><option value="">Sem título</option></select>
+        <span class="muted small" id="titleHint"></span>
+      </div>
       <div class="rows">
         <button type="button" class="row" id="howBtn"><b>Como funciona o XP</b><span>Rever a explicação do primeiro acesso</span></button>
         <button type="button" class="row" id="exportBtn"><b>Baixar minhas missões</b><span>Planilha .csv que abre no Excel ou no Google Planilhas</span></button>
@@ -155,7 +167,7 @@
       <h2>Privacidade</h2>
       <p class="muted">Suas missões ficam no Firebase, serviço do Google, e só a sua conta consegue lê-las. Nos grupos, os outros membros veem apenas seu nome, sua foto, seu nível e seu XP. O administrador do app tem acesso técnico ao banco de dados. Apagar seus dados nesta tela remove tudo o que foi salvo pelo app.</p>
     </div>
-    <p class="note">Diário de Missões · versão 2</p>
+    <p class="note">Diário de Missões · versão 3</p>
   </section>
 </div>
 
@@ -169,6 +181,7 @@
       <li><b>Conclua e ganhe XP.</b> Desmarcar devolve o XP, então vale ser honesto.</li>
       <li><b>Suba de nível.</b> O nível 2 pede 100 XP, e cada nível seguinte pede 50 a mais.</li>
       <li><b>Mantenha a sequência:</b> conclua ao menos uma missão por dia.</li>
+      <li><b>Desbloqueie conquistas:</b> são 83, com XP bônus, medalhas e títulos. Algumas são secretas.</li>
       <li><b>Chame amigos</b> na aba Grupos para disputar o ranking da semana.</li>
     </ol>
     <button class="primary wide" type="button" id="obOk">Começar</button>

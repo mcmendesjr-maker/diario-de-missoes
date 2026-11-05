@@ -7,16 +7,19 @@ service cloud.firestore {
     function isDate(v) { return v is string && v.size() == 10; }
 
     function validProfile(d) {
-      return d.keys().hasOnly(['name', 'photo', 'createdAt', 'onboarded', 'groups'])
+      return d.keys().hasOnly(['name', 'photo', 'createdAt', 'onboarded', 'groups', 'ach', 'title', 'flags'])
         && d.name is string && d.name.size() <= 80
         && d.photo is string && d.photo.size() <= 600
         && d.createdAt is number
         && d.onboarded is bool
-        && d.groups is list && d.groups.size() <= 10;
+        && d.groups is list && d.groups.size() <= 10
+        && (!('ach' in d) || (d.ach is map && d.ach.size() <= 200))
+        && (!('title' in d) || (d.title is string && d.title.size() <= 40))
+        && (!('flags' in d) || (d.flags is map && d.flags.size() <= 10));
     }
 
     function validTask(d) {
-      return d.keys().hasOnly(['title', 'cat', 'diff', 'daily', 'due', 'done', 'doneAt', 'created', 'updated'])
+      return d.keys().hasOnly(['title', 'cat', 'diff', 'daily', 'due', 'done', 'doneAt', 'doneHour', 'hours', 'created', 'updated'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 140
         && d.cat in ['pessoal', 'profissional']
         && d.diff in [1, 2, 3]
@@ -24,12 +27,15 @@ service cloud.firestore {
         && (d.due == null || isDate(d.due))
         && (!('done' in d) || (d.done is list && d.done.size() <= 4000))
         && (!('doneAt' in d) || d.doneAt == null || isDate(d.doneAt))
+        && (!('doneHour' in d) || d.doneHour == null || (d.doneHour is int && d.doneHour >= 0 && d.doneHour <= 23))
+        && (!('hours' in d) || (d.hours is map && d.hours.size() <= 4000))
         && d.created is number;
     }
 
     function validMember(d) {
-      return d.keys().hasOnly(['name', 'photo', 'level', 'total', 'week', 'weekXp', 'updated'])
+      return d.keys().hasOnly(['name', 'photo', 'title', 'level', 'total', 'week', 'weekXp', 'updated'])
         && d.name is string && d.name.size() <= 80
+        && (!('title' in d) || (d.title is string && d.title.size() <= 40))
         && d.photo is string && d.photo.size() <= 600
         && d.level is number && d.total is number && d.weekXp is number
         && d.total >= 0 && d.total <= 10000000

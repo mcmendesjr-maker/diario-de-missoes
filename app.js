@@ -4,6 +4,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
 } from "./firebase.js";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, eligible } from "./achievements.js";
 
 /* =========================================================
    Regras de jogo
@@ -56,19 +57,125 @@ function nice(s) { const [y, m, d] = s.split("-").map(Number); return WD[new Dat
 /* =========================================================
    Cálculos (o XP é sempre recalculado das missões concluídas)
    ========================================================= */
+const dayNum = (s) => { const [y, m, d] = s.split("-").map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); };
+const weekday = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).getDay(); };
+
+// Bônus das conquistas já desbloqueadas (guardadas no perfil com a data).
+function bonusInfo() {
+  const ach = profile?.ach || {}, ws = weekStart(), td = today();
+  let total = 0, week = 0, todayXp = 0;
+  for (const [id, ts] of Object.entries(ach)) {
+    const a = BY_ID[id]; if (!a) continue;
+    total += a.xp;
+    const d = dstr(new Date(ts));
+    if (d >= ws) week += a.xp;
+    if (d === td) todayXp += a.xp;
+  }
+  return { total, week, today: todayXp };
+}
+
 function computeStats() {
-  const byDay = {}; let total = 0, count = 0; const cats = { pessoal: 0, profissional: 0 };
+  const td = today(), ws = weekStart();
+  const byDay = {}, countDay = {}, hardDay = {}, weekCats = {};
+  let missionXp = 0, count = 0, hard = 0, pontual = 0, early = 0, night = 0, insomnia = 0, maxDaily = 0, withDue = 0, overdue = 0;
+  const cats = { pessoal: 0, profissional: 0 };
+  let dailyExists = false;
+  const lateByWeek = {}; // semanas em que alguma missão com prazo atrasou
+
   for (const t of tasks.values()) {
     const xp = XP[t.diff] || 10;
-    const dates = t.daily ? (t.done || []) : (t.doneAt ? [t.doneAt] : []);
-    for (const d of dates) { byDay[d] = (byDay[d] || 0) + xp; total += xp; count++; cats[t.cat] = (cats[t.cat] || 0) + 1; }
+    if (t.daily) { dailyExists = true; maxDaily = Math.max(maxDaily, (t.done || []).length); }
+    if (!t.daily && t.due) {
+      withDue++;
+      const late = t.doneAt ? t.doneAt > t.due : t.due < td;
+      if (late) lateByWeek[weekStart(t.due)] = true;
+      if (!t.doneAt && t.due < td) overdue++;
+      if (t.doneAt && t.doneAt <= t.due) pontual++;
+    }
+    const entries = t.daily
+      ? (t.done || []).map((d) => [d, t.hours ? t.hours[d] : undefined])
+      : (t.doneAt ? [[t.doneAt, t.doneHour]] : []);
+    for (const [d, h] of entries) {
+      byDay[d] = (byDay[d] || 0) + xp; countDay[d] = (countDay[d] || 0) + 1;
+      missionXp += xp; count++; cats[t.cat] = (cats[t.cat] || 0) + 1;
+      if (t.diff === 3) { hard++; hardDay[d] = (hardDay[d] || 0) + 1; }
+      const w = weekStart(d); weekCats[w] = weekCats[w] || { pessoal: 0, profissional: 0 }; weekCats[w][t.cat]++;
+      if (typeof h === "number") { if (h < 7) early++; if (h >= 22) night++; if (h >= 3 && h < 5) insomnia++; }
+    }
   }
-  let streak = 0, d = today();
+
+  // sequências
+  const days = Object.keys(byDay).sort();
+  let bestStreak = 0, run = 0, prev = null, comeback = false;
+  for (const d of days) {
+    const n = dayNum(d);
+    if (prev !== null && n - prev >= 8) comeback = true;
+    run = prev !== null && n - prev === 1 ? run + 1 : 1;
+    bestStreak = Math.max(bestStreak, run); prev = n;
+  }
+  let streak = 0, d = td;
   if (!byDay[d]) d = addDays(d, -1);
   while (byDay[d]) { streak++; d = addDays(d, -1); }
-  const ws = weekStart(); let weekXp = 0;
-  for (let i = 0; i < 7; i++) weekXp += byDay[addDays(ws, i)] || 0;
-  return { byDay, total, count, cats, streak, weekXp, week: ws };
+
+  // semanas e dias
+  const weekXpMap = {};
+  for (const d2 of days) { const w = weekStart(d2); weekXpMap[w] = (weekXpMap[w] || 0) + byDay[d2]; }
+  const maxDay = Math.max(0, ...Object.values(byDay));
+  const maxWeek = Math.max(0, ...Object.values(weekXpMap));
+  let weekends = 0;
+  for (const d2 of days) if (weekday(d2) === 6 && byDay[addDays(d2, 1)]) weekends++;
+  let cleanWeek = false;
+  for (const w of Object.keys(weekXpMap)) {
+    if (w >= ws) continue; // só semanas já encerradas
+    let c = 0; for (let i = 0; i < 7; i++) c += countDay[addDays(w, i)] || 0;
+    if (c >= 5 && !lateByWeek[w]) { cleanWeek = true; break; }
+  }
+
+  // hoje
+  const B = buckets();
+  const perfectDay = B.hoje.length >= 5 && B.hoje.every(isDoneToday);
+
+  // grupos
+  const codes = profile?.groups || [];
+  let founder = false, groupOf5 = false, leader = false;
+  for (const c of codes) {
+    const g = groupData.get(c); if (!g) continue;
+    if (g.owner === uid) founder = true;
+    const ms = g.members || [];
+    if (ms.length >= 5) groupOf5 = true;
+    if (ms.length >= 3) {
+      const pts = (m) => (m.week === ws ? m.weekXp : 0);
+      const me = ms.find((m) => m.id === uid);
+      if (me && pts(me) >= 100 && ms.every((m) => m.id === uid || pts(m) < pts(me))) leader = true;
+    }
+  }
+
+  const bonus = bonusInfo();
+  let weekMission = 0; for (let i = 0; i < 7; i++) weekMission += byDay[addDays(ws, i)] || 0;
+  const created = profile?.createdAt || Date.now();
+
+  const ctx = {
+    count, bestStreak, missionXp, missionLevel: levelFor(missionXp).lvl, pessoal: cats.pessoal, profissional: cats.profissional,
+    hard, maxDaily, pontual, maxDay, maxWeek, weekends, early, night, activeDays: days.length,
+    first: count >= 1, streak3: bestStreak >= 3, dailyExists, planner: withDue >= 10,
+    balance5: cats.pessoal >= 5 && cats.profissional >= 5, balance50: cats.pessoal >= 50 && cats.profissional >= 50,
+    balancedWeek: Object.values(weekCats).some((c) => c.pessoal >= 5 && c.profissional >= 5),
+    trioHard: Object.values(hardDay).some((n) => n >= 3), perfectDay,
+    faxina: overdue === 0 && (profile?.flags?.od || 0) >= 3, cleanWeek,
+    inGroup: codes.length >= 1, founder, groupOf5, leader,
+    comeback, insomnia: insomnia >= 1, tenInDay: Object.values(countDay).some((n) => n >= 10),
+    exact100: days.some((x) => x < td && byDay[x] === 100),
+    fridayBig: days.some((x) => weekday(x) === 5 && byDay[x] >= 150),
+    newYear: days.some((x) => x.endsWith("-01-01")), xmas: days.some((x) => x.endsWith("-12-25")),
+    anniversary: !!byDay[td] && Date.now() - created >= 365 * 86400000,
+  };
+
+  return {
+    byDay, count, cats, streak, overdue, ctx, bonus,
+    missionXp, total: missionXp + bonus.total,
+    todayXp: (byDay[td] || 0) + bonus.today,
+    weekXp: weekMission + bonus.week, week: ws,
+  };
 }
 const isDoneToday = (t) => t.daily ? (t.done || []).includes(today()) : !!t.doneAt;
 
@@ -98,7 +205,9 @@ function render() {
   if (view === "missoes") renderTasks();
   if (view === "progresso") renderProgress(s, L);
   if (view === "grupos") renderGroups();
+  if (view === "conta") renderTitles();
   syncRanking(s, L);
+  checkAchievements(s);
 }
 
 function renderStatus(s, L) {
@@ -107,10 +216,12 @@ function renderStatus(s, L) {
   $("barFill").style.width = (L.into / L.need * 100) + "%";
   $("barNow").textContent = L.into + " / " + L.need + " XP";
   $("barNext").textContent = "faltam " + (L.need - L.into) + " XP para o nível " + (L.lvl + 1);
-  $("sToday").textContent = s.byDay[today()] || 0;
+  $("sToday").textContent = s.todayXp;
   $("sStreak").textContent = s.streak;
   $("sTotal").textContent = s.total;
-  $("sub").textContent = s.count ? s.count + (s.count === 1 ? " missão concluída" : " missões concluídas") + " até agora." : "Conclua missões para ganhar XP e subir de nível.";
+  const title = profile?.title && profile?.ach?.[profile.title] ? BY_ID[profile.title]?.title : null;
+  const done = s.count ? s.count + (s.count === 1 ? " missão concluída" : " missões concluídas") : "Conclua missões para ganhar XP e subir de nível.";
+  $("sub").textContent = title ? "“" + title + "” · " + done : done;
   if (loaded && lastLevel !== null && L.lvl > lastLevel) {
     const b = $("lvlBanner"); b.className = "levelup"; b.hidden = false;
     b.innerHTML = "<span>Subiu para o nível " + L.lvl + ": " + esc(rankOf(L.lvl)) + "!</span><button type=\"button\" id=\"lvlOk\">Fechar</button>";
@@ -180,18 +291,91 @@ function renderProgress(s, L) {
     const [y, m, dd] = d.split("-").map(Number);
     return '<div class="col' + (i === 6 ? " today" : "") + '"><span class="v">' + (vals[i] || "") + '</span><div class="b" style="height:' + (vals[i] / max * 78) + '%"></div><span class="d">' + (i === 6 ? "hoje" : WD[new Date(y, m - 1, dd).getDay()]) + "</span></div>";
   }).join("");
-  const A = [
-    ["1", "Primeira missão", "1 missão concluída", s.count >= 1],
-    ["10", "Pegando o ritmo", "10 missões", s.count >= 10],
-    ["50", "Experiente", "50 missões", s.count >= 50],
-    ["3d", "Três seguidos", "3 dias de sequência", s.streak >= 3],
-    ["7d", "Semana perfeita", "7 dias de sequência", s.streak >= 7],
-    ["⚖", "Equilíbrio", "5 pessoais e 5 profissionais", s.cats.pessoal >= 5 && s.cats.profissional >= 5],
-    ["N5", "Nível 5", "Alcance o nível 5", L.lvl >= 5],
-    ["1k", "Mil XP", "1.000 XP no total", s.total >= 1000],
-  ];
-  $("achCount").textContent = A.filter((a) => a[3]).length + "/" + A.length;
-  $("ach").innerHTML = A.map((a) => '<div class="a' + (a[3] ? " on" : "") + '"><div class="ic">' + a[0] + "</div><div><b>" + a[1] + "</b><span>" + a[2] + "</span></div></div>").join("");
+  const ach = profile?.ach || {}, ctx = s.ctx;
+  const got = ALL.filter((a) => ach[a.id]).length;
+  $("achCount").textContent = got + "/" + TOTAL;
+  $("achBonus").textContent = "+" + s.bonus.total + " XP de bônus";
+  const when = (id) => ach[id] ? "conquistada em " + nice(dstr(new Date(ach[id]))).replace(/^\w+, /, "") : "";
+  const fmt = (n) => n.toLocaleString("pt-BR");
+
+  // trilhas
+  $("trails").innerHTML = TRAILS.map((t) => {
+    const reached = t.goals.filter((_, i) => ach[t.id + "-" + (i + 1)]).length;
+    const val = ctx[t.key] || 0;
+    const next = reached < 4 ? t.goals[reached] : null;
+    const prevGoal = reached > 0 ? t.goals[reached - 1] : 0;
+    const pct = next ? Math.min(100, Math.max(0, (val - prevGoal) / (next - prevGoal) * 100)) : 100;
+    const medal = reached ? TIER_KEYS[reached - 1] : "none";
+    const pips = t.goals.map((g, i) => '<span class="pip ' + (ach[t.id + "-" + (i + 1)] ? TIER_KEYS[i] : "") + '" title="' + TIER_NAMES[i] + ": " + fmt(g) + '"></span>').join("");
+    return '<li class="trail"><div class="medal ' + medal + '">' + esc(t.icon) + "</div>" +
+      '<div class="tbody"><div class="thead"><b>' + esc(t.name) + (reached ? ' <span class="tier ' + medal + '">' + TIER_NAMES[reached - 1] + "</span>" : "") + '</b><span class="pips">' + pips + "</span></div>" +
+      '<div class="tbar"><i class="' + (next ? (reached < 4 ? TIER_KEYS[reached] : "") : "diamante") + '" style="width:' + pct + '%"></i></div>' +
+      '<span class="tmeta">' + (next ? fmt(Math.min(val, next)) + " / " + fmt(next) + " " + esc(t.unit) + " · próximo: " + TIER_NAMES[reached] + " +" + [25, 50, 100, 250][reached] + " XP" : "Trilha completa · " + fmt(val) + " " + esc(t.unit)) + "</span></div></li>";
+  }).join("");
+
+  // avulsas
+  $("singles").innerHTML = SINGLES.map((x) => {
+    const on = !!ach[x.id];
+    return '<div class="a' + (on ? " on" : "") + '"><div class="ic">★</div><div><b>' + esc(x.name) + "</b><span>" + esc(x.desc) + "</span>" +
+      '<span class="xpline">+50 XP' + (x.title ? " · título “" + esc(x.title) + "”" : "") + (on ? " · " + when(x.id) : "") + "</span></div></div>";
+  }).join("");
+
+  // secretas
+  $("secrets").innerHTML = SECRETS.map((x) => {
+    const on = !!ach[x.id];
+    return '<div class="a secret' + (on ? " on" : "") + '"><div class="ic">' + (on ? "✦" : "?") + "</div><div><b>" + (on ? esc(x.name) : "???") + "</b><span>" + esc(on ? x.desc : x.hint) + "</span>" +
+      '<span class="xpline">+100 XP' + (on ? " · título “" + esc(x.title) + "” · " + when(x.id) : "") + "</span></div></div>";
+  }).join("");
+}
+
+/* =========================================================
+   Conquistas: desbloqueio e títulos
+   ========================================================= */
+let achPending = false;
+async function checkAchievements(s) {
+  if (!loaded || !profile || achPending) return;
+  const ach = profile.ach || {};
+  const updates = {};
+  // Faxina: lembra quando chegou a ter 3 ou mais atrasadas.
+  const od = profile.flags?.od || 0;
+  if (s.overdue >= 3 && od < 3) updates["flags.od"] = s.overdue;
+  const fresh = eligible(s.ctx).filter((id) => !ach[id]);
+  if (fresh.includes("faxina")) updates["flags.od"] = 0;
+  const now = Date.now();
+  for (const id of fresh) updates["ach." + id] = now;
+  if (!Object.keys(updates).length) return;
+  achPending = true;
+  try {
+    if (!profile.flags && updates["flags.od"] !== undefined) { updates.flags = { od: updates["flags.od"] }; delete updates["flags.od"]; }
+    if (!profile.ach && fresh.length) { updates.ach = Object.fromEntries(fresh.map((id) => [id, now])); fresh.forEach((id) => delete updates["ach." + id]); }
+    await updateDoc(profileRef(), updates);
+    if (fresh.length) announce(fresh);
+  } catch (e) { showDbError(e); }
+  finally { achPending = false; }
+}
+
+function announce(ids) {
+  const xp = ids.reduce((a, id) => a + (BY_ID[id]?.xp || 0), 0);
+  const b = $("achBanner"); b.hidden = false;
+  if (ids.length === 1) {
+    const a = BY_ID[ids[0]];
+    b.innerHTML = '<span><small>Conquista desbloqueada</small>' + esc(a.name) + ' <span class="mono">+' + xp + " XP</span>" + (a.title ? "<small>Novo título: “" + esc(a.title) + "”</small>" : "") + "</span>";
+  } else {
+    b.innerHTML = '<span><small>' + ids.length + " conquistas desbloqueadas</small>" + ids.slice(0, 3).map((id) => esc(BY_ID[id].name)).join(", ") + (ids.length > 3 ? " e mais " + (ids.length - 3) : "") + ' <span class="mono">+' + xp + " XP</span></span>";
+  }
+  b.insertAdjacentHTML("beforeend", '<button type="button" id="achOk">Ver</button>');
+  $("achOk").onclick = () => { b.hidden = true; document.querySelector('[data-view="progresso"]').click(); };
+  clearTimeout(announce.t); announce.t = setTimeout(() => { b.hidden = true; }, 8000);
+}
+
+function renderTitles() {
+  const sel = $("titleSel"); if (!sel) return;
+  const ach = profile?.ach || {};
+  const owned = ALL.filter((a) => a.title && ach[a.id]);
+  const cur = profile?.title && ach[profile.title] ? profile.title : "";
+  const html = '<option value="">Sem título</option>' + owned.map((a) => '<option value="' + esc(a.id) + '"' + (a.id === cur ? " selected" : "") + ">" + esc(a.title) + " (" + esc(a.name) + ")</option>").join("");
+  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+  $("titleHint").textContent = owned.length ? owned.length + " títulos disponíveis. Ele aparece no seu painel e no ranking dos grupos." : "Você ganha títulos nas conquistas de ouro, diamante, secretas e em algumas especiais.";
 }
 
 function renderGroups() {
@@ -210,7 +394,7 @@ function renderGroups() {
     const rows = members.map((m, i) =>
       '<li class="rk' + (m.id === uid ? " me" : "") + '"><span class="pos">' + (i + 1) + "</span>" +
       (m.photo ? '<img src="' + esc(m.photo) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph0">' + esc((m.name || "?").charAt(0).toUpperCase()) + "</span>") +
-      '<span class="nm">' + esc(m.name || "Sem nome") + (m.id === uid ? " (você)" : "") + "<small>Nível " + (m.level || 1) + " · " + esc(rankOf(m.level || 1)) + "</small></span>" +
+      '<span class="nm">' + esc(m.name || "Sem nome") + (m.id === uid ? " (você)" : "") + "<small>Nível " + (m.level || 1) + " · " + esc(m.title || rankOf(m.level || 1)) + "</small></span>" +
       '<span class="pts">' + pts(m) + " XP</span></li>").join("");
     return '<div class="group" data-code="' + esc(code) + '"><div class="ghead"><h2>' + esc(g.name || "Grupo") + "</h2>" +
       '<span style="display:flex;gap:6px;align-items:center"><button type="button" class="code" data-gact="copy" title="Copiar código">' + esc(code) + "</button>" +
@@ -309,11 +493,12 @@ $("list").addEventListener("click", (e) => {
   if (act === "toggle") {
     const td = today(), xp = XP[t.diff] || 10, n = { ...t };
     let gained;
+    const hour = new Date().getHours();
     if (t.daily) {
-      const d = [...(t.done || [])], i = d.indexOf(td);
-      if (i >= 0) { d.splice(i, 1); gained = false; } else { d.push(td); gained = true; }
-      n.done = d;
-    } else { gained = !t.doneAt; n.doneAt = gained ? td : null; }
+      const d = [...(t.done || [])], i = d.indexOf(td), hours = { ...(t.hours || {}) };
+      if (i >= 0) { d.splice(i, 1); delete hours[td]; gained = false; } else { d.push(td); hours[td] = hour; gained = true; }
+      n.done = d; n.hours = hours;
+    } else { gained = !t.doneAt; n.doneAt = gained ? td : null; n.doneHour = gained ? hour : null; }
     put(id, n);
     toast(gained ? 'Missão concluída <span class="mono">+' + xp + " XP</span>" : 'Desmarcada <span class="mono">−' + xp + " XP</span>");
   }
@@ -365,7 +550,7 @@ async function ensureProfile() {
   try {
     const snap = await getDoc(profileRef());
     if (!snap.exists()) {
-      await setDoc(profileRef(), { name, photo, createdAt: Date.now(), onboarded: false, groups: [] });
+      await setDoc(profileRef(), { name, photo, createdAt: Date.now(), onboarded: false, groups: [], ach: {}, title: "", flags: { od: 0 } });
     } else {
       const p = snap.data();
       if (p.name !== name || p.photo !== photo) await updateDoc(profileRef(), { name, photo });
@@ -388,7 +573,8 @@ const memberRef = (code, id = uid) => doc(db, "groups", code, "members", id);
 
 function memberData() {
   const s = computeStats(), L = levelFor(s.total);
-  return { name: profile?.name || user.displayName || "Sem nome", photo: profile?.photo || "", level: L.lvl, total: s.total, week: s.week, weekXp: s.weekXp, updated: Date.now() };
+  const title = profile?.title && profile?.ach?.[profile.title] ? (BY_ID[profile.title]?.title || "") : "";
+  return { name: profile?.name || user.displayName || "Sem nome", photo: profile?.photo || "", title, level: L.lvl, total: s.total, week: s.week, weekXp: s.weekXp, updated: Date.now() };
 }
 
 function groupError(msg) { const b = $("groupErr"); b.textContent = msg; b.hidden = !msg; }
@@ -475,7 +661,7 @@ let syncT;
 function syncRanking(s, L) {
   const codes = profile?.groups || [];
   if (!loaded || !codes.length) return;
-  const sig = [L.lvl, s.total, s.week, s.weekXp, profile.name, profile.photo, codes.join(",")].join("|");
+  const sig = [L.lvl, s.total, s.week, s.weekXp, profile.name, profile.photo, profile.title || "", codes.join(",")].join("|");
   if (sig === lastSync) return;
   clearTimeout(syncT);
   syncT = setTimeout(async () => {
@@ -533,6 +719,11 @@ $("wipeBtn").addEventListener("click", async () => {
     btn.querySelector("b").textContent = "Apagar todos os meus dados";
     btn.classList.remove("arm");
   }
+});
+
+$("titleSel").addEventListener("change", async (e) => {
+  try { await updateDoc(profileRef(), { title: e.target.value }); toast(e.target.value ? "Título atualizado" : "Título removido"); }
+  catch (err) { showDbError(err); }
 });
 
 /* =========================================================
