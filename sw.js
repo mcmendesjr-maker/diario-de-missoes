@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir sem internet.
-// Ao publicar uma versão nova, aumente o número abaixo.
-const VERSION = "v3";
+// Ao publicar uma versão nova, aumente o número abaixo e também o ?v= no index.html e no app.js.
+const VERSION = "v4";
 const CACHE = "missoes-" + VERSION;
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "firebase.js", "manifest.json", "achievements.js",

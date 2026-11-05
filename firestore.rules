@@ -7,7 +7,7 @@ service cloud.firestore {
     function isDate(v) { return v is string && v.size() == 10; }
 
     function validProfile(d) {
-      return d.keys().hasOnly(['name', 'photo', 'createdAt', 'onboarded', 'groups', 'ach', 'title', 'flags'])
+      return d.keys().hasOnly(['name', 'photo', 'createdAt', 'onboarded', 'groups', 'ach', 'title', 'flags', 'shields'])
         && d.name is string && d.name.size() <= 80
         && d.photo is string && d.photo.size() <= 600
         && d.createdAt is number
@@ -15,11 +15,13 @@ service cloud.firestore {
         && d.groups is list && d.groups.size() <= 10
         && (!('ach' in d) || (d.ach is map && d.ach.size() <= 200))
         && (!('title' in d) || (d.title is string && d.title.size() <= 40))
-        && (!('flags' in d) || (d.flags is map && d.flags.size() <= 10));
+        && (!('flags' in d) || (d.flags is map && d.flags.size() <= 10))
+        && (!('shields' in d) || (d.shields is list && d.shields.size() <= 400));
     }
 
     function validTask(d) {
-      return d.keys().hasOnly(['title', 'cat', 'diff', 'daily', 'due', 'done', 'doneAt', 'doneHour', 'hours', 'created', 'updated'])
+      return d.keys().hasOnly(['title', 'cat', 'diff', 'daily', 'due', 'done', 'doneAt', 'doneHour', 'hours', 'created', 'updated',
+                               'repeat', 'days', 'monthDay', 'pin', 'paused', 'note', 'subs', 'subsDay'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 140
         && d.cat in ['pessoal', 'profissional']
         && d.diff in [1, 2, 3]
@@ -29,17 +31,27 @@ service cloud.firestore {
         && (!('doneAt' in d) || d.doneAt == null || isDate(d.doneAt))
         && (!('doneHour' in d) || d.doneHour == null || (d.doneHour is int && d.doneHour >= 0 && d.doneHour <= 23))
         && (!('hours' in d) || (d.hours is map && d.hours.size() <= 4000))
+        && (!('repeat' in d) || d.repeat in ['daily', 'week', 'month'])
+        && (!('days' in d) || (d.days is list && d.days.size() <= 7))
+        && (!('monthDay' in d) || (d.monthDay is int && d.monthDay >= 1 && d.monthDay <= 31))
+        && (!('pin' in d) || d.pin is bool)
+        && (!('paused' in d) || d.paused is bool)
+        && (!('note' in d) || (d.note is string && d.note.size() <= 1000))
+        && (!('subs' in d) || (d.subs is list && d.subs.size() <= 20))
+        && (!('subsDay' in d) || d.subsDay == null || isDate(d.subsDay))
         && d.created is number;
     }
 
     function validMember(d) {
-      return d.keys().hasOnly(['name', 'photo', 'title', 'level', 'total', 'week', 'weekXp', 'updated'])
+      return d.keys().hasOnly(['name', 'photo', 'title', 'level', 'total', 'week', 'weekXp', 'prevWeek', 'prevWeekXp', 'updated'])
         && d.name is string && d.name.size() <= 80
         && (!('title' in d) || (d.title is string && d.title.size() <= 40))
         && d.photo is string && d.photo.size() <= 600
         && d.level is number && d.total is number && d.weekXp is number
         && d.total >= 0 && d.total <= 10000000
         && isDate(d.week)
+        && (!('prevWeek' in d) || isDate(d.prevWeek))
+        && (!('prevWeekXp' in d) || d.prevWeekXp is number)
         && d.updated is number;
     }
 
@@ -56,13 +68,23 @@ service cloud.firestore {
 
     // Grupos: quem tem o código entra; membros veem nome, foto e XP uns dos outros.
     match /groups/{code} {
+      function group() { return get(/databases/$(database)/documents/groups/$(code)).data; }
+      function notBanned() { return !(request.auth.uid in group().get('banned', [])); }
+
       allow get: if signedIn();
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['name', 'owner', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['name', 'owner', 'createdAt', 'banned'])
         && request.resource.data.owner == request.auth.uid
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
-        && request.resource.data.createdAt is number;
+        && request.resource.data.createdAt is number
+        && (!('banned' in request.resource.data) || request.resource.data.banned is list);
+      // Só quem criou pode renomear o grupo e remover pessoas.
+      allow update: if signedIn() && resource.data.owner == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'banned'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
+        && (!('banned' in request.resource.data) || (request.resource.data.banned is list && request.resource.data.banned.size() <= 200));
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
 
       match /members/{uid} {
@@ -70,9 +92,10 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/groups/$(code)/members/$(request.auth.uid));
         allow create, update: if isMe(uid)
           && exists(/databases/$(database)/documents/groups/$(code))
+          && notBanned()
           && validMember(request.resource.data);
         allow delete: if isMe(uid)
-          || (signedIn() && get(/databases/$(database)/documents/groups/$(code)).data.owner == request.auth.uid);
+          || (signedIn() && group().owner == request.auth.uid);
       }
     }
   }

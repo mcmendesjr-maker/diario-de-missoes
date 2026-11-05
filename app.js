@@ -3,8 +3,8 @@ import {
   db, login, logout, watchUser,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
-} from "./firebase.js";
-import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, eligible } from "./achievements.js";
+} from "./firebase.js?v=4";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=4";
 
 /* =========================================================
    Regras de jogo
@@ -24,24 +24,24 @@ const rankOf = (lvl) => RANKS[Math.min(lvl - 1, RANKS.length - 1)];
 /* =========================================================
    Estado
    ========================================================= */
-let user = null;              // usuário do Firebase Auth
-let uid = null;
+let user = null, uid = null;
 let profile = null;           // users/{uid}
 let tasks = new Map();        // users/{uid}/tasks
 let loaded = false;
-let subs = [];                // inscrições ativas (para cancelar ao sair)
+let subs = [];
 let groupSubs = new Map();    // código -> cancelar inscrição
-let groupData = new Map();    // código -> { name, owner, members: [] }
+let groupData = new Map();    // código -> { name, owner, banned, members }
 
 let view = "missoes", tab = "hoje", filter = "todas", rankBy = "week";
-const form = { cat: "pessoal", diff: 1 };
-let editing = null;           // { id, title, cat, diff, due }
-let armed = null;             // missão aguardando confirmação de exclusão
-let lastLevel = null;
-let lastSync = "";            // evita regravar o ranking sem mudança
+const form = { cat: "pessoal", diff: 1, rep: "once", days: [1, 2, 3, 4, 5] };
+let editing = null;           // rascunho da missão aberta
+let lastLevel = null, lastSync = "";
+let histQuery = "", histLimit = 14;
+let groupUi = {};             // estado de botões dos grupos (confirmações, renomear)
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 /* =========================================================
    Datas (horário local)
@@ -49,30 +49,65 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const dstr = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 const today = () => dstr(new Date());
 function addDays(s, n) { const [y, m, d] = s.split("-").map(Number); return dstr(new Date(y, m - 1, d + n)); }
-function weekStart(s = today()) { const [y, m, d] = s.split("-").map(Number); const dt = new Date(y, m - 1, d); const back = (dt.getDay() + 6) % 7; return addDays(s, -back); } // segunda-feira
+const weekday = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).getDay(); };
+function weekStart(s = today()) { return addDays(s, -((weekday(s) + 6) % 7)); } // segunda-feira
+const dayNum = (s) => { const [y, m, d] = s.split("-").map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); };
 const WD = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+const WD1 = ["D", "S", "T", "Q", "Q", "S", "S"];
 const MO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 function nice(s) { const [y, m, d] = s.split("-").map(Number); return WD[new Date(y, m - 1, d).getDay()] + ", " + d + " " + MO[m - 1]; }
+function dayLabel(s) { const td = today(); return s === td ? "Hoje" : s === addDays(td, -1) ? "Ontem" : nice(s); }
+function quickDate(q) {
+  const td = today();
+  if (q === "none") return "";
+  if (q === "fri") { const w = weekday(td); return addDays(td, ((5 - w + 7) % 7) || 7); }
+  return addDays(td, +q);
+}
+
+/* =========================================================
+   Repetição
+   ========================================================= */
+// Uma missão "daily" é qualquer missão que se repete; repeat define como.
+function repeatOf(t) { return !t.daily ? "once" : (t.repeat || "daily"); }
+function isScheduled(t, d) {
+  if (!t.daily || t.paused) return false;
+  const r = repeatOf(t);
+  if (r === "week") return (t.days || []).includes(weekday(d));
+  if (r === "month") {
+    const [y, m, dd] = d.split("-").map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return dd === Math.min(t.monthDay || 1, last);
+  }
+  return true;
+}
+function nextScheduled(t, from = today()) {
+  for (let i = 1; i <= 62; i++) { const d = addDays(from, i); if (isScheduled(t, d)) return d; }
+  return null;
+}
+function repeatLabel(t) {
+  const r = repeatOf(t);
+  if (r === "week") { const ds = [...(t.days || [])].sort(); return ds.length === 7 ? "todo dia" : ds.length === 5 && !ds.includes(0) && !ds.includes(6) ? "dias úteis" : ds.map((d) => WD[d]).join(", "); }
+  if (r === "month") return "todo dia " + (t.monthDay || 1);
+  return "todo dia";
+}
 
 /* =========================================================
    Cálculos (o XP é sempre recalculado das missões concluídas)
    ========================================================= */
-const dayNum = (s) => { const [y, m, d] = s.split("-").map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); };
-const weekday = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).getDay(); };
-
-// Bônus das conquistas já desbloqueadas (guardadas no perfil com a data).
 function bonusInfo() {
-  const ach = profile?.ach || {}, ws = weekStart(), td = today();
-  let total = 0, week = 0, todayXp = 0;
+  const ach = profile?.ach || {}, ws = weekStart(), pws = addDays(ws, -7), td = today();
+  let total = 0, week = 0, prevWeek = 0, todayXp = 0;
   for (const [id, ts] of Object.entries(ach)) {
     const a = BY_ID[id]; if (!a) continue;
     total += a.xp;
     const d = dstr(new Date(ts));
-    if (d >= ws) week += a.xp;
+    if (d >= ws) week += a.xp; else if (d >= pws) prevWeek += a.xp;
     if (d === td) todayXp += a.xp;
   }
-  return { total, week, today: todayXp };
+  return { total, week, prevWeek, today: todayXp };
 }
+const isDoneOn = (t, d) => t.daily ? (t.done || []).includes(d) : t.doneAt === d;
+const isDoneToday = (t) => t.daily ? (t.done || []).includes(today()) : !!t.doneAt;
 
 function computeStats() {
   const td = today(), ws = weekStart();
@@ -80,7 +115,7 @@ function computeStats() {
   let missionXp = 0, count = 0, hard = 0, pontual = 0, early = 0, night = 0, insomnia = 0, maxDaily = 0, withDue = 0, overdue = 0;
   const cats = { pessoal: 0, profissional: 0 };
   let dailyExists = false;
-  const lateByWeek = {}; // semanas em que alguma missão com prazo atrasou
+  const lateByWeek = {};
 
   for (const t of tasks.values()) {
     const xp = XP[t.diff] || 10;
@@ -104,38 +139,35 @@ function computeStats() {
     }
   }
 
-  // sequências
+  // sequência (escudos contam como dia ativo só para a sequência)
+  const shields = new Set(profile?.shields || []);
   const days = Object.keys(byDay).sort();
-  let bestStreak = 0, run = 0, prev = null, comeback = false;
-  for (const d of days) {
-    const n = dayNum(d);
-    if (prev !== null && n - prev >= 8) comeback = true;
-    run = prev !== null && n - prev === 1 ? run + 1 : 1;
-    bestStreak = Math.max(bestStreak, run); prev = n;
-  }
+  const streakDays = [...new Set([...days, ...shields])].sort();
+  let bestStreak = 0, run = 0, prev = null;
+  for (const d of streakDays) { const n = dayNum(d); run = prev !== null && n - prev === 1 ? run + 1 : 1; bestStreak = Math.max(bestStreak, run); prev = n; }
+  let comeback = false; prev = null;
+  for (const d of days) { const n = dayNum(d); if (prev !== null && n - prev >= 8) comeback = true; prev = n; }
+  const active = (d) => !!byDay[d] || shields.has(d);
   let streak = 0, d = td;
-  if (!byDay[d]) d = addDays(d, -1);
-  while (byDay[d]) { streak++; d = addDays(d, -1); }
+  if (!active(d)) d = addDays(d, -1);
+  while (active(d)) { streak++; d = addDays(d, -1); }
 
-  // semanas e dias
   const weekXpMap = {};
-  for (const d2 of days) { const w = weekStart(d2); weekXpMap[w] = (weekXpMap[w] || 0) + byDay[d2]; }
+  for (const x of days) { const w = weekStart(x); weekXpMap[w] = (weekXpMap[w] || 0) + byDay[x]; }
   const maxDay = Math.max(0, ...Object.values(byDay));
   const maxWeek = Math.max(0, ...Object.values(weekXpMap));
   let weekends = 0;
-  for (const d2 of days) if (weekday(d2) === 6 && byDay[addDays(d2, 1)]) weekends++;
+  for (const x of days) if (weekday(x) === 6 && byDay[addDays(x, 1)]) weekends++;
   let cleanWeek = false;
   for (const w of Object.keys(weekXpMap)) {
-    if (w >= ws) continue; // só semanas já encerradas
+    if (w >= ws) continue;
     let c = 0; for (let i = 0; i < 7; i++) c += countDay[addDays(w, i)] || 0;
     if (c >= 5 && !lateByWeek[w]) { cleanWeek = true; break; }
   }
 
-  // hoje
   const B = buckets();
   const perfectDay = B.hoje.length >= 5 && B.hoje.every(isDoneToday);
 
-  // grupos
   const codes = profile?.groups || [];
   let founder = false, groupOf5 = false, leader = false;
   for (const c of codes) {
@@ -151,7 +183,8 @@ function computeStats() {
   }
 
   const bonus = bonusInfo();
-  let weekMission = 0; for (let i = 0; i < 7; i++) weekMission += byDay[addDays(ws, i)] || 0;
+  let weekMission = 0, prevWeekMission = 0;
+  for (let i = 0; i < 7; i++) { weekMission += byDay[addDays(ws, i)] || 0; prevWeekMission += byDay[addDays(ws, i - 7)] || 0; }
   const created = profile?.createdAt || Date.now();
 
   const ctx = {
@@ -171,33 +204,47 @@ function computeStats() {
   };
 
   return {
-    byDay, count, cats, streak, overdue, ctx, bonus,
+    byDay, count, cats, streak, overdue, ctx, bonus, shields,
     missionXp, total: missionXp + bonus.total,
     todayXp: (byDay[td] || 0) + bonus.today,
     weekXp: weekMission + bonus.week, week: ws,
+    prevWeekXp: prevWeekMission + bonus.prevWeek, prevWeek: addDays(ws, -7),
   };
 }
-const isDoneToday = (t) => t.daily ? (t.done || []).includes(today()) : !!t.doneAt;
 
 function buckets() {
-  const td = today(), hoje = [], prox = [], feitas = [];
+  const td = today(), hoje = [], prox = [];
   for (const [id, t] of tasks) {
     const item = { id, ...t };
-    if (t.daily) { hoje.push(item); continue; }
-    if (t.doneAt) { feitas.push(item); if (t.doneAt === td) hoje.push(item); continue; }
+    if (t.daily) {
+      if (isScheduled(t, td) || isDoneOn(t, td)) hoje.push(item); else prox.push(item);
+      continue;
+    }
+    if (t.doneAt) { if (t.doneAt === td) hoje.push(item); continue; }
     if (t.due && t.due > td) prox.push(item); else hoje.push(item);
   }
   const key = (x) => x.due || "9999";
-  hoje.sort((a, b) => (isDoneToday(a) - isDoneToday(b)) || key(a).localeCompare(key(b)) || (b.diff - a.diff));
-  prox.sort((a, b) => key(a).localeCompare(key(b)));
-  feitas.sort((a, b) => b.doneAt.localeCompare(a.doneAt));
-  return { hoje, prox, feitas };
+  hoje.sort((a, b) => (isDoneToday(a) - isDoneToday(b)) || ((b.pin ? 1 : 0) - (a.pin ? 1 : 0)) || key(a).localeCompare(key(b)) || (b.diff - a.diff));
+  const nextKey = (x) => x.daily ? (x.paused ? "9999-p" : (nextScheduled(x) || "9998")) : key(x);
+  prox.sort((a, b) => ((b.pin ? 1 : 0) - (a.pin ? 1 : 0)) || nextKey(a).localeCompare(nextKey(b)));
+  return { hoje, prox };
+}
+
+// Todas as conclusões (uma por dia por missão), mais recentes primeiro.
+function history() {
+  const out = [];
+  for (const [id, t] of tasks) {
+    const dates = t.daily ? (t.done || []) : (t.doneAt ? [t.doneAt] : []);
+    for (const d of dates) out.push({ id, t, date: d });
+  }
+  return out.sort((a, b) => b.date.localeCompare(a.date) || a.t.title.localeCompare(b.t.title));
 }
 
 /* =========================================================
    Desenho da tela
    ========================================================= */
 const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+const STAR = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.6l1.9 4.1 4.5.5-3.4 3 1 4.4L8 11.3 4 13.6l1-4.4-3.4-3 4.5-.5z"/></svg>';
 
 function render() {
   const s = computeStats(), L = levelFor(s.total);
@@ -208,6 +255,7 @@ function render() {
   if (view === "conta") renderTitles();
   syncRanking(s, L);
   checkAchievements(s);
+  checkShield(s);
 }
 
 function renderStatus(s, L) {
@@ -218,6 +266,9 @@ function renderStatus(s, L) {
   $("barNext").textContent = "faltam " + (L.need - L.into) + " XP para o nível " + (L.lvl + 1);
   $("sToday").textContent = s.todayXp;
   $("sStreak").textContent = s.streak;
+  const usedThisWeek = [...s.shields].some((d) => d >= weekStart());
+  $("sShield").textContent = usedThisWeek ? "escudo usado esta semana" : "escudo disponível";
+  $("sShield").classList.toggle("used", usedThisWeek);
   $("sTotal").textContent = s.total;
   const title = profile?.title && profile?.ach?.[profile.title] ? BY_ID[profile.title]?.title : null;
   const done = s.count ? s.count + (s.count === 1 ? " missão concluída" : " missões concluídas") : "Conclua missões para ganhar XP e subir de nível.";
@@ -233,53 +284,129 @@ function renderStatus(s, L) {
 function segHtml(attr, items, current) {
   return '<div class="seg">' + items.map(([v, label]) => '<button type="button" ' + attr + '="' + v + '" aria-pressed="' + (String(current) === String(v)) + '">' + label + "</button>").join("") + "</div>";
 }
+function daysHtml(attr, sel) {
+  return '<div class="days">' + [1, 2, 3, 4, 5, 6, 0].map((d) => '<button type="button" ' + attr + '="' + d + '" aria-pressed="' + sel.includes(d) + '" aria-label="' + WD[d] + '">' + WD1[d] + "</button>").join("") + "</div>";
+}
+function linkify(text) {
+  return esc(text).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/\n/g, "<br>");
+}
 
 function renderTasks() {
   const B = buckets(), f = (x) => filter === "todas" || x.cat === filter;
   $("nHoje").textContent = B.hoje.filter((x) => !isDoneToday(x)).length || "";
   $("nProx").textContent = B.prox.length || "";
-  $("nFeitas").textContent = B.feitas.length || "";
+  $("nFeitas").textContent = "";
+  $("histSearch").hidden = tab !== "feitas";
   // Enquanto edita, a lista não é redesenhada para não perder o que está sendo digitado.
   if (editing && tasks.has(editing.id) && document.querySelector(".editbox")) return;
 
-  const rows = (tab === "hoje" ? B.hoje : tab === "proximas" ? B.prox : B.feitas).filter(f);
   const list = $("list");
   if (!loaded) { list.innerHTML = '<li class="empty"><b>Carregando missões…</b>Isso leva só um instante.</li>'; return; }
+  if (tab === "feitas") { renderHistory(f); return; }
+
+  const rows = (tab === "hoje" ? B.hoje : B.prox).filter(f);
+  // uma missão aberta para edição que não está nesta aba (ex.: concluída em outro dia) aparece no topo
+  if (editing && tasks.has(editing.id) && !rows.some((r) => r.id === editing.id)) rows.unshift({ id: editing.id, ...tasks.get(editing.id) });
   if (!rows.length) {
     const msg = tasks.size === 0
       ? '<b>Nenhuma missão ainda</b>Escreva a primeira lá em cima, escolha se é pessoal ou profissional e a dificuldade.<br><button type="button" class="ghost" id="seed">Começar com missões de exemplo</button>'
       : tab === "hoje" ? "<b>Tudo em dia</b>Nada pendente para hoje" + (filter !== "todas" ? " nesse filtro" : "") + "."
-      : tab === "proximas" ? "<b>Sem missões futuras</b>Missões com prazo depois de hoje aparecem aqui."
-      : "<b>Nada concluído ainda</b>Missões finalizadas ficam guardadas aqui.";
+      : "<b>Sem missões futuras</b>Missões com prazo depois de hoje e repetições fora de hoje aparecem aqui.";
     list.innerHTML = '<li class="empty">' + msg + "</li>";
     const sb = $("seed"); if (sb) sb.onclick = seed;
     return;
   }
+  list.innerHTML = rows.map((t) => editing && editing.id === t.id ? editRow(t) : taskRow(t)).join("");
+}
+
+function taskRow(t, opts = {}) {
   const td = today();
-  list.innerHTML = rows.map((t) => {
-    if (editing && editing.id === t.id) return editRow(t);
-    const done = isDoneToday(t);
-    let when = "";
-    if (t.daily) when = "<span>todo dia" + ((t.done || []).length ? " · " + t.done.length + "×" : "") + "</span>";
-    else if (t.doneAt) when = "<span>feita " + (t.doneAt === td ? "hoje" : nice(t.doneAt)) + "</span>";
-    else if (t.due) when = t.due < td ? '<span class="late">atrasada · ' + nice(t.due) + "</span>" : "<span>" + (t.due === td ? "vence hoje" : nice(t.due)) + "</span>";
-    return '<li class="task' + (done ? " done" : "") + '" data-id="' + esc(t.id) + '">' +
-      '<button type="button" class="check" data-act="toggle" aria-label="' + (done ? "Desmarcar" : "Concluir") + " " + esc(t.title) + '">' + CHECK + "</button>" +
-      '<div class="body"><div class="ttl edit" data-act="edit" role="button" tabindex="0">' + esc(t.title) + '</div><div class="meta"><span class="tag ' + esc(t.cat) + '">' + (t.cat === "profissional" ? "Profissional" : "Pessoal") + "</span><span>" + DIFF[t.diff] + "</span>" + when + "</div></div>" +
-      '<span class="xp">+' + (XP[t.diff] || 10) + "</span>" +
-      '<button type="button" class="del' + (armed === t.id ? " arm" : "") + '" data-act="del" aria-label="Excluir ' + esc(t.title) + '">' + (armed === t.id ? "Excluir?" : "✕") + "</button></li>";
-  }).join("");
+  const date = opts.date || td;
+  const done = opts.date ? true : isDoneToday(t);
+  let when = "";
+  if (opts.date) when = "<span>" + (t.daily ? "repetição" : "") + "</span>";
+  else if (t.daily) {
+    if (t.paused) when = '<span class="paused">pausada · ' + esc(repeatLabel(t)) + "</span>";
+    else {
+      const next = isScheduled(t, td) || isDoneOn(t, td) ? null : nextScheduled(t);
+      when = "<span>" + esc(repeatLabel(t)) + ((t.done || []).length ? " · " + t.done.length + "×" : "") + (next ? " · próxima " + nice(next) : "") + "</span>";
+    }
+  } else if (t.doneAt) when = "<span>feita " + (t.doneAt === td ? "hoje" : nice(t.doneAt)) + "</span>";
+  else if (t.due) when = t.due < td ? '<span class="late">atrasada · ' + nice(t.due) + "</span>" : "<span>" + (t.due === td ? "vence hoje" : nice(t.due)) + "</span>";
+
+  const subsArr = t.subs || [];
+  const subsDone = subsDoneFor(t);
+  const subsHtml = subsArr.length && !opts.date
+    ? '<ul class="subs">' + subsArr.map((s, i) => '<li><label><input type="checkbox" data-act="sub" data-i="' + i + '"' + (subsDone[i] ? " checked" : "") + '><span>' + esc(s.t) + "</span></label></li>").join("") + "</ul>"
+    : "";
+  const meta = '<span class="tag ' + esc(t.cat) + '">' + (t.cat === "profissional" ? "Profissional" : "Pessoal") + "</span><span>" + DIFF[t.diff] + "</span>" + when +
+    (subsArr.length ? '<span class="pill">' + subsDone.filter(Boolean).length + "/" + subsArr.length + "</span>" : "") +
+    (t.note ? '<span class="pill" title="Tem nota">nota</span>' : "");
+  return '<li class="task' + (done ? " done" : "") + (t.pin ? " pinned" : "") + (t.paused ? " is-paused" : "") + '" data-id="' + esc(t.id) + '"' + (opts.date ? ' data-date="' + date + '"' : "") + ">" +
+    '<button type="button" class="check" data-act="toggle" aria-label="' + (done ? "Desmarcar" : "Concluir") + " " + esc(t.title) + '"' + (t.paused && !opts.date ? " disabled" : "") + ">" + CHECK + "</button>" +
+    '<div class="body"><div class="ttl edit" data-act="open" role="button" tabindex="0">' + esc(t.title) + '</div><div class="meta">' + meta + "</div>" + subsHtml + "</div>" +
+    '<span class="xp">+' + (XP[t.diff] || 10) + "</span>" +
+    (opts.date ? "" : '<button type="button" class="pinbtn" data-act="pin" aria-pressed="' + !!t.pin + '" aria-label="' + (t.pin ? "Desafixar" : "Fixar no topo") + '">' + STAR + "</button>") +
+    "</li>";
+}
+
+// Subtarefas: em missões que se repetem, as marcações valem só para o dia.
+function subsDoneFor(t) {
+  const arr = t.subs || [];
+  if (t.daily && t.subsDay !== today()) return arr.map(() => false);
+  return arr.map((s) => !!s.d);
+}
+
+function renderHistory(f) {
+  const q = norm(histQuery);
+  const items = history().filter((h) => f(h.t) && (!q || norm(h.t.title).includes(q) || norm(h.t.note).includes(q)));
+  const list = $("list");
+  if (!items.length) {
+    list.innerHTML = '<li class="empty">' + (q ? "<b>Nada encontrado</b>Nenhuma missão concluída com esse texto." : "<b>Nada concluído ainda</b>Missões finalizadas ficam guardadas aqui, agrupadas por dia.") + "</li>";
+    return;
+  }
+  const groups = [];
+  for (const h of items) { const g = groups[groups.length - 1]; if (g && g.date === h.date) g.items.push(h); else groups.push({ date: h.date, items: [h] }); }
+  const shown = groups.slice(0, histLimit);
+  list.innerHTML = shown.map((g) => {
+    const xp = g.items.reduce((a, h) => a + (XP[h.t.diff] || 10), 0);
+    return '<li class="dayhead"><b>' + esc(dayLabel(g.date)) + '</b><span class="mono">' + g.items.length + " · +" + xp + " XP</span></li>" +
+      g.items.map((h) => taskRow({ id: h.id, ...h.t }, { date: h.date })).join("");
+  }).join("") + (groups.length > histLimit ? '<li><button type="button" class="ghost wide" id="moreHist">Mostrar mais dias</button></li>' : "");
+  const more = $("moreHist"); if (more) more.onclick = () => { histLimit += 14; renderTasks(); };
 }
 
 function editRow(t) {
-  return '<li class="task" data-id="' + esc(t.id) + '"><div class="editbox">' +
-    '<input type="text" id="editTitle" maxlength="140" value="' + esc(editing.title) + '" aria-label="Nome da missão">' +
+  const e = editing, td = today(), yd = addDays(td, -1);
+  const canYesterday = t.daily
+    ? !t.paused && isScheduled(t, yd) && !isDoneOn(t, yd)
+    : !t.doneAt;
+  const rep = e.rep;
+  return '<li class="task open" data-id="' + esc(t.id) + '"><div class="editbox">' +
+    '<input type="text" id="editTitle" maxlength="140" value="' + esc(e.title) + '" aria-label="Nome da missão">' +
     '<div class="opts">' +
-      segHtml("data-ecat", [["pessoal", "Pessoal"], ["profissional", "Profissional"]], editing.cat) +
-      segHtml("data-ediff", [[1, "Fácil · 10"], [2, "Média · 25"], [3, "Difícil · 50"]], editing.diff) +
-      (t.daily ? '<span class="chk">Todo dia</span>' : '<input type="date" id="editDue" value="' + esc(editing.due || "") + '" aria-label="Prazo">') +
+      segHtml("data-ecat", [["pessoal", "Pessoal"], ["profissional", "Profissional"]], e.cat) +
+      segHtml("data-ediff", [[1, "Fácil · 10"], [2, "Média · 25"], [3, "Difícil · 50"]], e.diff) +
     "</div>" +
-    '<div class="acts"><button type="button" class="cancel" data-act="ecancel">Cancelar</button><button type="button" class="save" data-act="esave">Salvar</button></div>' +
+    (t.daily
+      ? '<div class="opts">' + segHtml("data-erep", [["daily", "Todo dia"], ["week", "Dias da semana"], ["month", "Mensal"]], rep) + "</div>" +
+        (rep === "week" ? '<div class="opts">' + daysHtml("data-eday", e.days) + "</div>" : "") +
+        (rep === "month" ? '<div class="opts"><label class="chk">Todo dia <input type="number" id="editMonthDay" min="1" max="31" value="' + e.monthDay + '" aria-label="Dia do mês"> de cada mês</label></div>' : "")
+      : '<div class="opts"><div class="chips">' + [["0", "Hoje"], ["1", "Amanhã"], ["fri", "Sexta"], ["none", "Sem prazo"]].map(([q, l]) => '<button type="button" data-equick="' + q + '">' + l + "</button>").join("") + "</div>" +
+        '<input type="date" id="editDue" value="' + esc(e.due || "") + '" aria-label="Prazo"></div>') +
+    '<label class="fl" for="editNote">Nota</label>' +
+    '<textarea id="editNote" maxlength="1000" rows="2" placeholder="Detalhes, links, observações">' + esc(e.note) + "</textarea>" +
+    (e.note && /https?:\/\//.test(e.note) ? '<p class="notepreview">' + linkify(e.note) + "</p>" : "") +
+    '<span class="fl">Subtarefas</span>' +
+    '<ul class="esubs">' + e.subs.map((s, i) => '<li><input type="checkbox" data-esubd="' + i + '"' + (s.d ? " checked" : "") + ' aria-label="Concluída"><input type="text" data-esubt="' + i + '" value="' + esc(s.t) + '" maxlength="100" aria-label="Subtarefa ' + (i + 1) + '"><button type="button" class="x" data-esubx="' + i + '" aria-label="Remover subtarefa">✕</button></li>').join("") + "</ul>" +
+    (e.subs.length < 20 ? '<div class="addrow small"><input type="text" id="newSub" maxlength="100" placeholder="Nova subtarefa"><button type="button" class="secondary" data-act="addsub">Adicionar</button></div>' : "") +
+    '<div class="actions">' +
+      '<button type="button" data-act="pin">' + (t.pin ? "Desafixar" : "Fixar no topo") + "</button>" +
+      (canYesterday ? '<button type="button" data-act="yesterday">Marcar como feita ontem</button>' : "") +
+      (t.daily ? '<button type="button" data-act="pause">' + (t.paused ? "Retomar" : "Pausar") + "</button>" : "") +
+      '<button type="button" class="danger" data-act="del">Excluir</button>' +
+    "</div>" +
+    '<div class="acts"><button type="button" class="cancel" data-act="ecancel">Fechar</button><button type="button" class="save" data-act="esave">Salvar</button></div>' +
     "</div></li>";
 }
 
@@ -287,18 +414,15 @@ function renderProgress(s, L) {
   const days = []; for (let i = 6; i >= 0; i--) days.push(addDays(today(), -i));
   const vals = days.map((d) => s.byDay[d] || 0), max = Math.max(50, ...vals);
   $("weekSum").textContent = vals.reduce((a, b) => a + b, 0) + " XP";
-  $("week").innerHTML = days.map((d, i) => {
-    const [y, m, dd] = d.split("-").map(Number);
-    return '<div class="col' + (i === 6 ? " today" : "") + '"><span class="v">' + (vals[i] || "") + '</span><div class="b" style="height:' + (vals[i] / max * 78) + '%"></div><span class="d">' + (i === 6 ? "hoje" : WD[new Date(y, m - 1, dd).getDay()]) + "</span></div>";
-  }).join("");
+  $("week").innerHTML = days.map((d, i) =>
+    '<div class="col' + (i === 6 ? " today" : "") + (s.shields.has(d) ? " shielded" : "") + '"><span class="v">' + (vals[i] || (s.shields.has(d) ? "escudo" : "")) + '</span><div class="b" style="height:' + (vals[i] / max * 78) + '%"></div><span class="d">' + (i === 6 ? "hoje" : WD[weekday(d)]) + "</span></div>").join("");
+
   const ach = profile?.ach || {}, ctx = s.ctx;
-  const got = ALL.filter((a) => ach[a.id]).length;
-  $("achCount").textContent = got + "/" + TOTAL;
+  $("achCount").textContent = ALL.filter((a) => ach[a.id]).length + "/" + TOTAL;
   $("achBonus").textContent = "+" + s.bonus.total + " XP de bônus";
-  const when = (id) => ach[id] ? "conquistada em " + nice(dstr(new Date(ach[id]))).replace(/^\w+, /, "") : "";
+  const when = (id) => ach[id] ? "conquistada em " + nice(dstr(new Date(ach[id]))).replace(/^\S+, /, "") : "";
   const fmt = (n) => n.toLocaleString("pt-BR");
 
-  // trilhas
   $("trails").innerHTML = TRAILS.map((t) => {
     const reached = t.goals.filter((_, i) => ach[t.id + "-" + (i + 1)]).length;
     const val = ctx[t.key] || 0;
@@ -309,73 +433,21 @@ function renderProgress(s, L) {
     const pips = t.goals.map((g, i) => '<span class="pip ' + (ach[t.id + "-" + (i + 1)] ? TIER_KEYS[i] : "") + '" title="' + TIER_NAMES[i] + ": " + fmt(g) + '"></span>').join("");
     return '<li class="trail"><div class="medal ' + medal + '">' + esc(t.icon) + "</div>" +
       '<div class="tbody"><div class="thead"><b>' + esc(t.name) + (reached ? ' <span class="tier ' + medal + '">' + TIER_NAMES[reached - 1] + "</span>" : "") + '</b><span class="pips">' + pips + "</span></div>" +
-      '<div class="tbar"><i class="' + (next ? (reached < 4 ? TIER_KEYS[reached] : "") : "diamante") + '" style="width:' + pct + '%"></i></div>' +
-      '<span class="tmeta">' + (next ? fmt(Math.min(val, next)) + " / " + fmt(next) + " " + esc(t.unit) + " · próximo: " + TIER_NAMES[reached] + " +" + [25, 50, 100, 250][reached] + " XP" : "Trilha completa · " + fmt(val) + " " + esc(t.unit)) + "</span></div></li>";
+      '<div class="tbar"><i class="' + (next ? TIER_KEYS[reached] : "diamante") + '" style="width:' + pct + '%"></i></div>' +
+      '<span class="tmeta">' + (next ? fmt(Math.min(val, next)) + " / " + fmt(next) + " " + esc(t.unit) + " · próximo: " + TIER_NAMES[reached] + " +" + TIER_XP[reached] + " XP" : "Trilha completa · " + fmt(val) + " " + esc(t.unit)) + "</span></div></li>";
   }).join("");
 
-  // avulsas
   $("singles").innerHTML = SINGLES.map((x) => {
     const on = !!ach[x.id];
     return '<div class="a' + (on ? " on" : "") + '"><div class="ic">★</div><div><b>' + esc(x.name) + "</b><span>" + esc(x.desc) + "</span>" +
       '<span class="xpline">+50 XP' + (x.title ? " · título “" + esc(x.title) + "”" : "") + (on ? " · " + when(x.id) : "") + "</span></div></div>";
   }).join("");
 
-  // secretas
   $("secrets").innerHTML = SECRETS.map((x) => {
     const on = !!ach[x.id];
     return '<div class="a secret' + (on ? " on" : "") + '"><div class="ic">' + (on ? "✦" : "?") + "</div><div><b>" + (on ? esc(x.name) : "???") + "</b><span>" + esc(on ? x.desc : x.hint) + "</span>" +
       '<span class="xpline">+100 XP' + (on ? " · título “" + esc(x.title) + "” · " + when(x.id) : "") + "</span></div></div>";
   }).join("");
-}
-
-/* =========================================================
-   Conquistas: desbloqueio e títulos
-   ========================================================= */
-let achPending = false;
-async function checkAchievements(s) {
-  if (!loaded || !profile || achPending) return;
-  const ach = profile.ach || {};
-  const updates = {};
-  // Faxina: lembra quando chegou a ter 3 ou mais atrasadas.
-  const od = profile.flags?.od || 0;
-  if (s.overdue >= 3 && od < 3) updates["flags.od"] = s.overdue;
-  const fresh = eligible(s.ctx).filter((id) => !ach[id]);
-  if (fresh.includes("faxina")) updates["flags.od"] = 0;
-  const now = Date.now();
-  for (const id of fresh) updates["ach." + id] = now;
-  if (!Object.keys(updates).length) return;
-  achPending = true;
-  try {
-    if (!profile.flags && updates["flags.od"] !== undefined) { updates.flags = { od: updates["flags.od"] }; delete updates["flags.od"]; }
-    if (!profile.ach && fresh.length) { updates.ach = Object.fromEntries(fresh.map((id) => [id, now])); fresh.forEach((id) => delete updates["ach." + id]); }
-    await updateDoc(profileRef(), updates);
-    if (fresh.length) announce(fresh);
-  } catch (e) { showDbError(e); }
-  finally { achPending = false; }
-}
-
-function announce(ids) {
-  const xp = ids.reduce((a, id) => a + (BY_ID[id]?.xp || 0), 0);
-  const b = $("achBanner"); b.hidden = false;
-  if (ids.length === 1) {
-    const a = BY_ID[ids[0]];
-    b.innerHTML = '<span><small>Conquista desbloqueada</small>' + esc(a.name) + ' <span class="mono">+' + xp + " XP</span>" + (a.title ? "<small>Novo título: “" + esc(a.title) + "”</small>" : "") + "</span>";
-  } else {
-    b.innerHTML = '<span><small>' + ids.length + " conquistas desbloqueadas</small>" + ids.slice(0, 3).map((id) => esc(BY_ID[id].name)).join(", ") + (ids.length > 3 ? " e mais " + (ids.length - 3) : "") + ' <span class="mono">+' + xp + " XP</span></span>";
-  }
-  b.insertAdjacentHTML("beforeend", '<button type="button" id="achOk">Ver</button>');
-  $("achOk").onclick = () => { b.hidden = true; document.querySelector('[data-view="progresso"]').click(); };
-  clearTimeout(announce.t); announce.t = setTimeout(() => { b.hidden = true; }, 8000);
-}
-
-function renderTitles() {
-  const sel = $("titleSel"); if (!sel) return;
-  const ach = profile?.ach || {};
-  const owned = ALL.filter((a) => a.title && ach[a.id]);
-  const cur = profile?.title && ach[profile.title] ? profile.title : "";
-  const html = '<option value="">Sem título</option>' + owned.map((a) => '<option value="' + esc(a.id) + '"' + (a.id === cur ? " selected" : "") + ">" + esc(a.title) + " (" + esc(a.name) + ")</option>").join("");
-  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
-  $("titleHint").textContent = owned.length ? owned.length + " títulos disponíveis. Ele aparece no seu painel e no ranking dos grupos." : "Você ganha títulos nas conquistas de ouro, diamante, secretas e em algumas especiais.";
 }
 
 function renderGroups() {
@@ -385,20 +457,30 @@ function renderGroups() {
     box.innerHTML = '<div class="empty"><b>Você ainda não está em nenhum grupo</b>Crie um grupo acima e envie o código, ou entre com o código que alguém te mandou.</div>';
     return;
   }
-  const ws = weekStart();
+  if (document.querySelector("#renameInput") && Object.values(groupUi).some((u) => u && u.renaming)) return; // não apaga o que está sendo digitado
+  const ws = weekStart(), lw = addDays(ws, -7);
   box.innerHTML = codes.map((code) => {
-    const g = groupData.get(code);
-    if (!g) return '<div class="group"><div class="ghead"><h2>Carregando grupo…</h2><span class="code">' + esc(code) + "</span></div></div>";
+    const g = groupData.get(code), ui = groupUi[code] || {};
+    if (!g || !g.members) return '<div class="group"><div class="ghead"><h2>Carregando grupo…</h2><span class="code">' + esc(code) + "</span></div></div>";
+    const isOwner = g.owner === uid;
     const pts = (m) => rankBy === "week" ? (m.week === ws ? m.weekXp : 0) : m.total;
-    const members = [...(g.members || [])].sort((a, b) => pts(b) - pts(a) || b.total - a.total);
+    const lastPts = (m) => m.prevWeek === lw ? m.prevWeekXp : m.week === lw ? m.weekXp : 0;
+    const members = [...g.members].sort((a, b) => pts(b) - pts(a) || b.total - a.total);
+    const champ = [...g.members].sort((a, b) => lastPts(b) - lastPts(a))[0];
     const rows = members.map((m, i) =>
       '<li class="rk' + (m.id === uid ? " me" : "") + '"><span class="pos">' + (i + 1) + "</span>" +
       (m.photo ? '<img src="' + esc(m.photo) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph0">' + esc((m.name || "?").charAt(0).toUpperCase()) + "</span>") +
       '<span class="nm">' + esc(m.name || "Sem nome") + (m.id === uid ? " (você)" : "") + "<small>Nível " + (m.level || 1) + " · " + esc(m.title || rankOf(m.level || 1)) + "</small></span>" +
-      '<span class="pts">' + pts(m) + " XP</span></li>").join("");
-    return '<div class="group" data-code="' + esc(code) + '"><div class="ghead"><h2>' + esc(g.name || "Grupo") + "</h2>" +
-      '<span style="display:flex;gap:6px;align-items:center"><button type="button" class="code" data-gact="copy" title="Copiar código">' + esc(code) + "</button>" +
-      '<button type="button" class="leave" data-gact="leave">' + (g.leaveArmed ? "Sair mesmo?" : "Sair") + "</button></span></div>" +
+      '<span class="pts">' + pts(m) + " XP</span>" +
+      (isOwner && m.id !== uid ? '<button type="button" class="leave" data-gact="kick" data-uid="' + esc(m.id) + '">' + (ui.kick === m.id ? "Remover?" : "✕") + "</button>" : "") +
+      "</li>").join("");
+    return '<div class="group" data-code="' + esc(code) + '"><div class="ghead">' +
+      (ui.renaming ? '<form class="addrow small" data-gform="rename"><input type="text" id="renameInput" maxlength="40" value="' + esc(g.name) + '" aria-label="Novo nome do grupo"><button type="submit" class="secondary">Salvar</button></form>'
+        : "<h2>" + esc(g.name || "Grupo") + "</h2>") +
+      '<span class="gbtns"><button type="button" class="code" data-gact="copy" title="Copiar código">' + esc(code) + "</button>" +
+      (isOwner && !ui.renaming ? '<button type="button" class="leave" data-gact="rename">Renomear</button>' : "") +
+      '<button type="button" class="leave" data-gact="leave">' + (ui.leave ? "Sair mesmo?" : "Sair") + "</button></span></div>" +
+      (champ && lastPts(champ) > 0 ? '<p class="champ">Campeão da semana passada: <b>' + esc(champ.name) + "</b> · " + lastPts(champ) + " XP</p>" : "") +
       '<ul class="ranklist">' + (rows || '<li class="note">Ninguém no ranking ainda.</li>') + "</ul></div>";
   }).join("");
 }
@@ -407,12 +489,28 @@ function renderGroups() {
    Avisos
    ========================================================= */
 let toastT;
-function toast(html) { const t = $("toast"); t.innerHTML = html; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2000); }
+function toast(html, action) {
+  const t = $("toast");
+  t.innerHTML = "<span>" + html + "</span>" + (action ? '<button type="button" id="toastAct">' + esc(action.label) + "</button>" : "");
+  t.classList.toggle("interactive", !!action);
+  t.classList.add("show");
+  if (action) $("toastAct").onclick = () => { t.classList.remove("show"); action.run(); };
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), action ? 5000 : 2000);
+}
 function showDbError(e) {
   const box = $("dbErr"); box.hidden = false;
   if (e && e.code === "permission-denied") box.textContent = "O banco recusou a operação. Confira se as regras novas do Firestore foram publicadas (arquivo firestore.rules).";
   else if (e && (e.code === "not-found" || e.code === "failed-precondition")) box.textContent = "O banco de dados ainda não existe. Crie o Firestore Database no console do Firebase.";
   else box.textContent = "Não consegui falar com o banco de dados. Verifique a internet e tente de novo.";
+}
+function celebrate(r, xp) {
+  try { navigator.vibrate?.(25); } catch (e) { }
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches || !r || !r.width) return;
+  const el = document.createElement("span");
+  el.className = "xpfloat"; el.textContent = "+" + xp + " XP";
+  el.style.left = (r.left + r.width / 2) + "px"; el.style.top = r.top + "px";
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 900);
 }
 
 /* =========================================================
@@ -425,23 +523,44 @@ function put(id, data) {
   setDoc(doc(tasksCol(), id), data).catch((e) => { showDbError(e); toast("Não consegui salvar."); });
 }
 function remove(id) {
+  const backup = tasks.get(id);
   tasks.delete(id); render();
   deleteDoc(doc(tasksCol(), id)).catch((e) => { showDbError(e); toast("Não consegui excluir."); });
+  toast("Missão excluída", { label: "Desfazer", run: () => put(id, backup) });
 }
 
 /* =========================================================
-   Ações: missões
+   Ações: nova missão
    ========================================================= */
+function syncAddForm() {
+  $("dueRow").hidden = form.rep !== "once";
+  $("daysRow").hidden = form.rep !== "week";
+  $("monthRow").hidden = form.rep !== "month";
+  $("newDays").innerHTML = daysHtml("data-nday", form.days).replace(/^<div class="days">|<\/div>$/g, "");
+}
+$("newDays").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-nday]"); if (!b) return;
+  const d = +b.dataset.nday;
+  form.days = form.days.includes(d) ? form.days.filter((x) => x !== d) : [...form.days, d];
+  syncAddForm();
+});
+document.querySelectorAll("[data-quick]").forEach((b) => b.addEventListener("click", () => { $("newDue").value = quickDate(b.dataset.quick); }));
+
 $("addForm").addEventListener("submit", (e) => {
   e.preventDefault();
   if (!loaded) return;
   const title = $("newTitle").value.trim(); if (!title) { $("newTitle").focus(); return; }
-  const daily = $("newDaily").checked, due = $("newDue").value || null;
-  const data = { title, cat: form.cat, diff: form.diff, daily, due: daily ? null : due, created: Date.now() };
-  if (daily) data.done = []; else data.doneAt = null;
+  const data = { title, cat: form.cat, diff: form.diff, daily: form.rep !== "once", due: null, created: Date.now() };
+  if (form.rep === "once") { data.due = $("newDue").value || null; data.doneAt = null; }
+  else {
+    data.done = []; data.repeat = form.rep;
+    if (form.rep === "week") { if (!form.days.length) { toast("Escolha pelo menos um dia da semana"); return; } data.days = [...form.days].sort(); }
+    if (form.rep === "month") data.monthDay = Math.min(31, Math.max(1, +$("newMonthDay").value || 1));
+  }
   put(newId(), data);
-  $("newTitle").value = ""; $("newDue").value = ""; $("newDaily").checked = false; $("newDue").disabled = false;
-  if (!daily && due && due > today()) toast("Missão agendada para " + esc(nice(due)));
+  $("newTitle").value = ""; $("newDue").value = "";
+  if (form.rep === "once" && data.due && data.due > today()) toast("Missão agendada para " + esc(nice(data.due)));
+  else if (form.rep !== "once" && !isScheduled(data, today())) toast("Repetição criada. Próxima: " + esc(nice(nextScheduled(data))));
 });
 
 function group(attr, fn) {
@@ -451,7 +570,8 @@ function group(attr, fn) {
 }
 group("data-cat", (b) => { form.cat = b.dataset.cat; });
 group("data-diff", (b) => { form.diff = +b.dataset.diff; });
-group("data-tab", (b) => { tab = b.dataset.tab; armed = null; editing = null; render(); });
+group("data-rep", (b) => { form.rep = b.dataset.rep; syncAddForm(); });
+group("data-tab", (b) => { tab = b.dataset.tab; editing = null; histLimit = 14; render(); });
 group("data-filter", (b) => { filter = b.dataset.filter; editing = null; render(); });
 group("data-rank", (b) => { rankBy = b.dataset.rank; render(); });
 group("data-view", (b) => {
@@ -459,68 +579,146 @@ group("data-view", (b) => {
   document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== "view-" + view; });
   render();
 });
-$("newDaily").addEventListener("change", () => { $("newDue").disabled = $("newDaily").checked; });
+$("histSearch").addEventListener("input", (e) => { histQuery = e.target.value; histLimit = 14; renderTasks(); });
+
+/* =========================================================
+   Ações: lista de missões
+   ========================================================= */
+function openEditor(id) {
+  const t = tasks.get(id); if (!t) return;
+  editing = {
+    id, title: t.title, cat: t.cat, diff: t.diff, due: t.due || "",
+    rep: repeatOf(t) === "once" ? "daily" : repeatOf(t), days: t.days ? [...t.days] : [1, 2, 3, 4, 5], monthDay: t.monthDay || 1,
+    note: t.note || "", subs: (t.subs || []).map((s, i) => ({ t: s.t, d: subsDoneFor(t)[i] })),
+  };
+  // abre na aba em que a missão aparece (ou em Hoje, se ela não aparece em nenhuma)
+  const B = buckets();
+  const target = B.prox.some((x) => x.id === id) && !B.hoje.some((x) => x.id === id) ? "proximas" : "hoje";
+  if (tab !== target) { tab = target; document.querySelectorAll("[data-tab]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.tab === target)); }
+  renderTasks();
+  const inp = $("editTitle"); if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+function rerenderEditor() {
+  const li = document.querySelector(".task.open"); if (!li || !editing) return;
+  const t = tasks.get(editing.id); if (!t) return;
+  li.outerHTML = editRow({ id: editing.id, ...t });
+}
+
+function toggleDone(id, date, btn) {
+  const t = tasks.get(id); if (!t) return;
+  const xp = XP[t.diff] || 10, n = { ...t };
+  const d = date || today();
+  const rect = btn ? btn.getBoundingClientRect() : null;
+  let gained;
+  const hour = new Date().getHours();
+  if (t.daily) {
+    const done = [...(t.done || [])], i = done.indexOf(d), hours = { ...(t.hours || {}) };
+    if (i >= 0) { done.splice(i, 1); delete hours[d]; gained = false; }
+    else { done.push(d); if (d === today()) hours[d] = hour; gained = true; }
+    n.done = done; n.hours = hours;
+  } else {
+    gained = !t.doneAt;
+    n.doneAt = gained ? d : null; n.doneHour = gained && d === today() ? hour : null;
+  }
+  put(id, n);
+  if (gained) { celebrate(rect, xp); toast('Missão concluída <span class="mono">+' + xp + " XP</span>"); }
+  else toast('Desmarcada <span class="mono">−' + xp + " XP</span>", { label: "Desfazer", run: () => put(id, t) });
+}
 
 $("list").addEventListener("click", (e) => {
-  // botões de tipo e dificuldade dentro da edição
-  const ec = e.target.closest("[data-ecat]"), ed = e.target.closest("[data-ediff]");
-  if (ec || ed) {
-    const attr = ec ? "data-ecat" : "data-ediff", b = ec || ed;
-    b.parentElement.querySelectorAll("[" + attr + "]").forEach((x) => x.setAttribute("aria-pressed", x === b));
-    if (ec) editing.cat = b.dataset.ecat; else editing.diff = +b.dataset.ediff;
-    return;
-  }
+  // controles dentro do editor
+  const pick = (attr) => e.target.closest("[" + attr + "]");
+  let b;
+  if ((b = pick("data-ecat"))) { editing.cat = b.dataset.ecat; setPressed(b, "data-ecat"); return; }
+  if ((b = pick("data-ediff"))) { editing.diff = +b.dataset.ediff; setPressed(b, "data-ediff"); return; }
+  if ((b = pick("data-erep"))) { editing.rep = b.dataset.erep; rerenderEditor(); return; }
+  if ((b = pick("data-eday"))) { const d = +b.dataset.eday; editing.days = editing.days.includes(d) ? editing.days.filter((x) => x !== d) : [...editing.days, d]; b.setAttribute("aria-pressed", editing.days.includes(d)); return; }
+  if ((b = pick("data-equick"))) { editing.due = quickDate(b.dataset.equick); $("editDue").value = editing.due; return; }
+  if ((b = pick("data-esubx"))) { editing.subs.splice(+b.dataset.esubx, 1); rerenderEditor(); return; }
+
   const btn = e.target.closest("[data-act]"); if (!btn) return;
   const li = btn.closest(".task"); if (!li) return;
   const id = li.dataset.id, t = tasks.get(id); if (!t) return;
   const act = btn.dataset.act;
 
-  if (act === "edit") {
-    editing = { id, title: t.title, cat: t.cat, diff: t.diff, due: t.due || "" };
-    armed = null;
-    renderTasks();
-    const inp = $("editTitle"); if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
-    return;
-  }
+  if (act === "open") { openEditor(id); return; }
   if (act === "ecancel") { editing = null; renderTasks(); return; }
   if (act === "esave") { saveEdit(); return; }
-
-  if (act === "del") {
-    if (armed === id) { armed = null; remove(id); }
-    else { armed = id; renderTasks(); setTimeout(() => { if (armed === id) { armed = null; renderTasks(); } }, 3000); }
+  if (act === "addsub") { addSubFromInput(); return; }
+  if (act === "toggle") { toggleDone(id, li.dataset.date, btn); return; }
+  if (act === "sub") {
+    const i = +btn.dataset.i, done = subsDoneFor(t);
+    done[i] = btn.checked;
+    put(id, { ...t, subs: (t.subs || []).map((s, k) => ({ t: s.t, d: !!done[k] })), subsDay: today() });
+    if (done.every(Boolean) && !isDoneToday(t)) toast("Todas as subtarefas feitas. Concluir a missão?", { label: "Concluir", run: () => toggleDone(id, null, li.querySelector(".check")) });
     return;
   }
-  if (act === "toggle") {
-    const td = today(), xp = XP[t.diff] || 10, n = { ...t };
-    let gained;
-    const hour = new Date().getHours();
-    if (t.daily) {
-      const d = [...(t.done || [])], i = d.indexOf(td), hours = { ...(t.hours || {}) };
-      if (i >= 0) { d.splice(i, 1); delete hours[td]; gained = false; } else { d.push(td); hours[td] = hour; gained = true; }
-      n.done = d; n.hours = hours;
-    } else { gained = !t.doneAt; n.doneAt = gained ? td : null; n.doneHour = gained ? hour : null; }
-    put(id, n);
-    toast(gained ? 'Missão concluída <span class="mono">+' + xp + " XP</span>" : 'Desmarcada <span class="mono">−' + xp + " XP</span>");
+  if (act === "pin") {
+    put(id, { ...t, pin: !t.pin });
+    toast(t.pin ? "Missão desafixada" : "Missão fixada no topo");
+    if (editing) { editing = null; renderTasks(); }
+    return;
   }
+  if (act === "pause") {
+    put(id, { ...t, paused: !t.paused });
+    toast(t.paused ? "Missão retomada" : "Missão pausada. A contagem do hábito fica guardada.");
+    editing = null; renderTasks();
+    return;
+  }
+  if (act === "yesterday") {
+    const yd = addDays(today(), -1);
+    editing = null;
+    toggleDone(id, yd, null);
+    if ((profile?.shields || []).includes(yd)) updateDoc(profileRef(), { shields: arrayRemove(yd) }).catch(() => {});
+    toast("Registrada como feita ontem");
+    return;
+  }
+  if (act === "del") { editing = null; remove(id); return; }
 });
+function setPressed(b, attr) { b.parentElement.querySelectorAll("[" + attr + "]").forEach((x) => x.setAttribute("aria-pressed", x === b)); }
+
 $("list").addEventListener("keydown", (e) => {
   if (e.target.id === "editTitle") {
     if (e.key === "Enter") { e.preventDefault(); saveEdit(); }
     if (e.key === "Escape") { editing = null; renderTasks(); }
-  } else if (e.target.dataset?.act === "edit" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.target.click(); }
+  } else if (e.target.id === "newSub" && e.key === "Enter") { e.preventDefault(); addSubFromInput(); }
+  else if (e.target.dataset?.act === "open" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.target.click(); }
 });
 $("list").addEventListener("input", (e) => {
   if (!editing) return;
-  if (e.target.id === "editTitle") editing.title = e.target.value;
-  if (e.target.id === "editDue") editing.due = e.target.value;
+  const el = e.target;
+  if (el.id === "editTitle") editing.title = el.value;
+  else if (el.id === "editDue") editing.due = el.value;
+  else if (el.id === "editNote") editing.note = el.value;
+  else if (el.id === "editMonthDay") editing.monthDay = Math.min(31, Math.max(1, +el.value || 1));
+  else if (el.dataset.esubt !== undefined) editing.subs[+el.dataset.esubt].t = el.value;
+  else if (el.dataset.esubd !== undefined) editing.subs[+el.dataset.esubd].d = el.checked;
 });
+$("list").addEventListener("change", (e) => {
+  if (editing && e.target.dataset.esubd !== undefined) editing.subs[+e.target.dataset.esubd].d = e.target.checked;
+});
+
+function addSubFromInput() {
+  const inp = $("newSub"); if (!inp) return;
+  const v = inp.value.trim(); if (!v) { inp.focus(); return; }
+  editing.subs.push({ t: v.slice(0, 100), d: false });
+  rerenderEditor();
+  const next = $("newSub"); if (next) next.focus();
+}
 
 function saveEdit() {
   const id = editing.id, t = tasks.get(id);
   if (!t) { editing = null; renderTasks(); return; }
   const title = editing.title.trim(); if (!title) { $("editTitle").focus(); return; }
-  const n = { ...t, title, cat: editing.cat, diff: editing.diff, updated: Date.now() };
-  if (!t.daily) n.due = editing.due || null;
+  const n = { ...t, title, cat: editing.cat, diff: editing.diff, updated: Date.now(), note: editing.note.trim().slice(0, 1000) };
+  const subs = editing.subs.filter((s) => s.t.trim()).map((s) => ({ t: s.t.trim().slice(0, 100), d: !!s.d }));
+  n.subs = subs; n.subsDay = today();
+  if (t.daily) {
+    if (editing.rep === "week" && !editing.days.length) { toast("Escolha pelo menos um dia da semana"); return; }
+    n.repeat = editing.rep;
+    if (editing.rep === "week") n.days = [...editing.days].sort(); else delete n.days;
+    if (editing.rep === "month") n.monthDay = editing.monthDay; else delete n.monthDay;
+  } else n.due = editing.due || null;
   editing = null;
   put(id, n);
   toast("Missão atualizada");
@@ -529,11 +727,12 @@ function saveEdit() {
 function seed() {
   const td = today();
   const ex = [
-    { title: "Beber 2 litros de água", cat: "pessoal", diff: 1, daily: true, done: [] },
-    { title: "Planejar as prioridades do dia", cat: "profissional", diff: 1, daily: true, done: [] },
-    { title: "Responder e-mails pendentes", cat: "profissional", diff: 2, daily: false, due: td, doneAt: null },
-    { title: "Treino de 30 minutos", cat: "pessoal", diff: 2, daily: false, due: td, doneAt: null },
-    { title: "Finalizar a apresentação do projeto", cat: "profissional", diff: 3, daily: false, due: addDays(td, 2), doneAt: null },
+    { title: "Beber 2 litros de água", cat: "pessoal", diff: 1, daily: true, repeat: "daily", done: [] },
+    { title: "Treino na academia", cat: "pessoal", diff: 2, daily: true, repeat: "week", days: [1, 3, 5], done: [] },
+    { title: "Planejar as prioridades do dia", cat: "profissional", diff: 1, daily: true, repeat: "week", days: [1, 2, 3, 4, 5], done: [] },
+    { title: "Responder e-mails pendentes", cat: "profissional", diff: 2, daily: false, due: td, doneAt: null, pin: true },
+    { title: "Finalizar a apresentação do projeto", cat: "profissional", diff: 3, daily: false, due: addDays(td, 2), doneAt: null,
+      subs: [{ t: "Reunir os números", d: false }, { t: "Montar os slides", d: false }, { t: "Revisar com a equipe", d: false }] },
   ];
   ex.forEach((d, i) => put(newId() + i, { ...d, due: d.due || null, created: Date.now() + i }));
   toast("Exemplos adicionados. Exclua quando quiser.");
@@ -550,7 +749,7 @@ async function ensureProfile() {
   try {
     const snap = await getDoc(profileRef());
     if (!snap.exists()) {
-      await setDoc(profileRef(), { name, photo, createdAt: Date.now(), onboarded: false, groups: [], ach: {}, title: "", flags: { od: 0 } });
+      await setDoc(profileRef(), { name, photo, createdAt: Date.now(), onboarded: false, groups: [], ach: {}, title: "", flags: { od: 0 }, shields: [] });
     } else {
       const p = snap.data();
       if (p.name !== name || p.photo !== photo) await updateDoc(profileRef(), { name, photo });
@@ -565,16 +764,92 @@ $("obOk").addEventListener("click", async () => {
 $("howBtn").addEventListener("click", () => { $("onboard").hidden = false; $("obOk").focus(); });
 
 /* =========================================================
+   Escudo de sequência: 1 por semana, usado sozinho
+   ========================================================= */
+let shieldBusy = false;
+async function checkShield(s) {
+  if (!loaded || !profile || shieldBusy) return;
+  const td = today(), yd = addDays(td, -1), dby = addDays(td, -2);
+  const shields = new Set(profile.shields || []);
+  if (s.byDay[yd] || shields.has(yd)) return;                       // ontem já está coberto
+  if (!s.byDay[dby] && !shields.has(dby)) return;                   // não havia sequência para salvar
+  if ((profile.createdAt || Date.now()) > new Date(yd + "T23:59:59").getTime()) return;
+  const wk = weekStart(yd);
+  if ([...shields].some((d) => weekStart(d) === wk)) return;        // já usou nesta semana
+  shieldBusy = true;
+  try {
+    const list = [...shields, yd].sort().slice(-400);
+    await updateDoc(profileRef(), { shields: list });
+    toast("Escudo usado: sua sequência foi salva");
+  } catch (e) { showDbError(e); }
+  finally { shieldBusy = false; }
+}
+
+/* =========================================================
+   Conquistas: desbloqueio e títulos
+   ========================================================= */
+let achPending = false;
+async function checkAchievements(s) {
+  if (!loaded || !profile || achPending) return;
+  const ach = profile.ach || {};
+  const updates = {};
+  const od = profile.flags?.od || 0;
+  if (s.overdue >= 3 && od < 3) updates["flags.od"] = s.overdue;
+  const fresh = eligible(s.ctx).filter((id) => !ach[id]);
+  if (fresh.includes("faxina")) updates["flags.od"] = 0;
+  const now = Date.now();
+  for (const id of fresh) updates["ach." + id] = now;
+  if (!Object.keys(updates).length) return;
+  achPending = true;
+  try {
+    await updateDoc(profileRef(), updates);
+    if (fresh.length) announce(fresh);
+  } catch (e) { showDbError(e); }
+  finally { achPending = false; }
+}
+
+function announce(ids) {
+  const xp = ids.reduce((a, id) => a + (BY_ID[id]?.xp || 0), 0);
+  const b = $("achBanner"); b.hidden = false;
+  if (ids.length === 1) {
+    const a = BY_ID[ids[0]];
+    b.innerHTML = "<span><small>Conquista desbloqueada</small>" + esc(a.name) + ' <span class="mono">+' + xp + " XP</span>" + (a.title ? "<small>Novo título: “" + esc(a.title) + "”</small>" : "") + "</span>";
+  } else {
+    b.innerHTML = "<span><small>" + ids.length + " conquistas desbloqueadas</small>" + ids.slice(0, 3).map((id) => esc(BY_ID[id].name)).join(", ") + (ids.length > 3 ? " e mais " + (ids.length - 3) : "") + ' <span class="mono">+' + xp + " XP</span></span>";
+  }
+  b.insertAdjacentHTML("beforeend", '<button type="button" id="achOk">Ver</button>');
+  $("achOk").onclick = () => { b.hidden = true; document.querySelector('[data-view="progresso"]').click(); };
+  try { navigator.vibrate?.([30, 60, 30]); } catch (e) { }
+  clearTimeout(announce.t); announce.t = setTimeout(() => { b.hidden = true; }, 8000);
+}
+
+function renderTitles() {
+  const sel = $("titleSel"); if (!sel) return;
+  const ach = profile?.ach || {};
+  const owned = ALL.filter((a) => a.title && ach[a.id]);
+  const cur = profile?.title && ach[profile.title] ? profile.title : "";
+  const html = '<option value="">Sem título</option>' + owned.map((a) => '<option value="' + esc(a.id) + '"' + (a.id === cur ? " selected" : "") + ">" + esc(a.title) + " (" + esc(a.name) + ")</option>").join("");
+  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+  $("titleHint").textContent = owned.length ? owned.length + " títulos disponíveis. Ele aparece no seu painel e no ranking dos grupos." : "Você ganha títulos nas conquistas de ouro, diamante, secretas e em algumas especiais.";
+}
+$("titleSel").addEventListener("change", async (e) => {
+  try { await updateDoc(profileRef(), { title: e.target.value }); toast(e.target.value ? "Título atualizado" : "Título removido"); }
+  catch (err) { showDbError(err); }
+});
+
+/* =========================================================
    Grupos e ranking
    ========================================================= */
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // sem 0/O e 1/I/L, que confundem
 const makeCode = () => Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join("");
 const memberRef = (code, id = uid) => doc(db, "groups", code, "members", id);
+const groupRef = (code) => doc(db, "groups", code);
 
 function memberData() {
   const s = computeStats(), L = levelFor(s.total);
   const title = profile?.title && profile?.ach?.[profile.title] ? (BY_ID[profile.title]?.title || "") : "";
-  return { name: profile?.name || user.displayName || "Sem nome", photo: profile?.photo || "", title, level: L.lvl, total: s.total, week: s.week, weekXp: s.weekXp, updated: Date.now() };
+  return { name: profile?.name || user.displayName || "Sem nome", photo: profile?.photo || "", title, level: L.lvl, total: s.total,
+    week: s.week, weekXp: s.weekXp, prevWeek: s.prevWeek, prevWeekXp: s.prevWeekXp, updated: Date.now() };
 }
 
 function groupError(msg) { const b = $("groupErr"); b.textContent = msg; b.hidden = !msg; }
@@ -585,8 +860,9 @@ async function joinGroup(code) {
   if ((profile?.groups || []).includes(code)) { groupError("Você já está nesse grupo."); return false; }
   if ((profile?.groups || []).length >= 10) { groupError("Você pode participar de até 10 grupos."); return false; }
   try {
-    const g = await getDoc(doc(db, "groups", code));
+    const g = await getDoc(groupRef(code));
     if (!g.exists()) { groupError("Nenhum grupo com esse código. Confira com quem te enviou."); return false; }
+    if ((g.data().banned || []).includes(uid)) { groupError("Você foi removido desse grupo por quem o criou."); return false; }
     await setDoc(memberRef(code), memberData());
     await updateDoc(profileRef(), { groups: arrayUnion(code) });
     groupError("");
@@ -607,9 +883,9 @@ $("createForm").addEventListener("submit", async (e) => {
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = makeCode();
     try {
-      const exists = await getDoc(doc(db, "groups", code));
+      const exists = await getDoc(groupRef(code));
       if (exists.exists()) continue;
-      await setDoc(doc(db, "groups", code), { name: name.slice(0, 40), owner: uid, createdAt: Date.now() });
+      await setDoc(groupRef(code), { name: name.slice(0, 40), owner: uid, createdAt: Date.now(), banned: [] });
       if (await joinGroup(code)) { $("groupName").value = ""; toast("Grupo criado. Código: <span class=\"mono\">" + code + "</span>"); }
       return;
     } catch (err) { /* código ocupado ou erro de rede: tenta outro */ }
@@ -617,57 +893,98 @@ $("createForm").addEventListener("submit", async (e) => {
   groupError("Não consegui criar o grupo. Tente de novo.");
 });
 
+function armGroup(code, key, value) {
+  groupUi[code] = { ...(groupUi[code] || {}), [key]: value };
+  renderGroups();
+  setTimeout(() => { if (groupUi[code]?.[key] === value) { groupUi[code][key] = null; renderGroups(); } }, 3000);
+}
+
 $("groups").addEventListener("click", async (e) => {
   const btn = e.target.closest("[data-gact]"); if (!btn) return;
-  const code = btn.closest(".group").dataset.code, g = groupData.get(code);
-  if (btn.dataset.gact === "copy") {
+  const code = btn.closest(".group").dataset.code, g = groupData.get(code), ui = groupUi[code] || {};
+  const act = btn.dataset.gact;
+  if (act === "copy") {
     try { await navigator.clipboard.writeText(code); toast("Código copiado"); }
     catch { toast("Código: <span class=\"mono\">" + code + "</span>"); }
     return;
   }
-  if (btn.dataset.gact === "leave" && g) {
-    if (!g.leaveArmed) { g.leaveArmed = true; renderGroups(); setTimeout(() => { g.leaveArmed = false; renderGroups(); }, 3000); return; }
+  if (act === "rename") { groupUi[code] = { ...ui, renaming: true }; renderGroups(); $("renameInput")?.focus(); return; }
+  if (act === "leave" && g) {
+    if (!ui.leave) { armGroup(code, "leave", true); return; }
     try {
       await deleteDoc(memberRef(code));
       await updateDoc(profileRef(), { groups: arrayRemove(code) });
       toast("Você saiu do grupo");
     } catch (err) { groupError("Não consegui sair do grupo. Tente de novo."); }
+    return;
+  }
+  if (act === "kick" && g) {
+    const who = btn.dataset.uid;
+    if (ui.kick !== who) { armGroup(code, "kick", who); return; }
+    try {
+      await updateDoc(groupRef(code), { banned: arrayUnion(who) });
+      await deleteDoc(memberRef(code, who));
+      groupUi[code] = { ...ui, kick: null };
+      toast("Pessoa removida do grupo");
+    } catch (err) { groupError("Não consegui remover. Confira se as regras novas foram publicadas."); }
   }
 });
+$("groups").addEventListener("submit", async (e) => {
+  const f = e.target.closest("[data-gform='rename']"); if (!f) return;
+  e.preventDefault();
+  const code = f.closest(".group").dataset.code, name = $("renameInput").value.trim().slice(0, 40);
+  if (!name) return;
+  try {
+    await updateDoc(groupRef(code), { name });
+    const g = groupData.get(code); if (g) g.name = name;
+    groupUi[code] = { ...(groupUi[code] || {}), renaming: false };
+    renderGroups(); toast("Grupo renomeado");
+  } catch (err) { groupError("Não consegui renomear. Tente de novo."); }
+});
 
-// Acompanha os grupos da pessoa; abre e fecha inscrições conforme entra ou sai.
 function watchGroups(codes) {
   for (const [code, stop] of groupSubs) if (!codes.includes(code)) { stop(); groupSubs.delete(code); groupData.delete(code); }
   for (const code of codes) {
     if (groupSubs.has(code)) continue;
-    groupData.set(code, groupData.get(code) || null);
-    getDoc(doc(db, "groups", code)).then((g) => {
-      const cur = groupData.get(code) || { members: [] };
-      groupData.set(code, { ...cur, name: g.exists() ? g.data().name : "Grupo removido", owner: g.exists() ? g.data().owner : null });
+    groupData.set(code, groupData.get(code) || { members: null });
+    const stops = [];
+    stops.push(onSnapshot(groupRef(code), (g) => {
+      const cur = groupData.get(code) || {};
+      if (!g.exists()) { groupData.set(code, { ...cur, name: "Grupo removido", owner: null, members: cur.members || [] }); }
+      else {
+        const d = g.data();
+        groupData.set(code, { ...cur, name: d.name, owner: d.owner, banned: d.banned || [] });
+        if ((d.banned || []).includes(uid)) {
+          updateDoc(profileRef(), { groups: arrayRemove(code) }).catch(() => {});
+          toast("Você foi removido do grupo " + esc(d.name));
+        }
+      }
       if (view === "grupos") renderGroups();
-    }).catch(() => {});
-    const stop = onSnapshot(collection(db, "groups", code, "members"), (snap) => {
+    }, () => {}));
+    stops.push(onSnapshot(collection(db, "groups", code, "members"), (snap) => {
       const cur = groupData.get(code) || {};
       groupData.set(code, { ...cur, members: snap.docs.map((d) => ({ id: d.id, ...d.data() })) });
       if (view === "grupos") renderGroups();
-    }, () => {});
-    groupSubs.set(code, stop);
+    }, () => {}));
+    groupSubs.set(code, () => stops.forEach((s) => s()));
   }
-  lastSync = ""; // força atualizar o próprio placar nos grupos
+  lastSync = "";
 }
 
-// Atualiza seu placar nos grupos quando o XP muda (com uma pequena espera para juntar cliques).
 let syncT;
 function syncRanking(s, L) {
   const codes = profile?.groups || [];
   if (!loaded || !codes.length) return;
-  const sig = [L.lvl, s.total, s.week, s.weekXp, profile.name, profile.photo, profile.title || "", codes.join(",")].join("|");
+  const sig = [L.lvl, s.total, s.week, s.weekXp, s.prevWeekXp, profile.name, profile.photo, profile.title || "", codes.join(",")].join("|");
   if (sig === lastSync) return;
   clearTimeout(syncT);
   syncT = setTimeout(async () => {
     lastSync = sig;
     const data = memberData();
-    for (const code of codes) { try { await setDoc(memberRef(code), data); } catch (e) { /* grupo removido */ } }
+    for (const code of codes) {
+      if ((groupData.get(code)?.banned || []).includes(uid)) continue;
+      try { await setDoc(memberRef(code), data); } catch (e) { /* grupo removido */ }
+    }
   }, 1500);
 }
 
@@ -676,10 +993,11 @@ function syncRanking(s, L) {
    ========================================================= */
 $("exportBtn").addEventListener("click", () => {
   const q = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
-  const lines = [["Missão", "Tipo", "Dificuldade", "XP", "Diária", "Prazo", "Concluída em"].map(q).join(";")];
+  const lines = [["Missão", "Tipo", "Dificuldade", "XP", "Repetição", "Prazo", "Concluída em", "Subtarefas", "Nota"].map(q).join(";")];
   for (const t of tasks.values()) {
     const dates = t.daily ? (t.done || []).join(", ") : (t.doneAt || "");
-    lines.push([t.title, t.cat === "profissional" ? "Profissional" : "Pessoal", DIFF[t.diff], XP[t.diff], t.daily ? "Sim" : "Não", t.due || "", dates].map(q).join(";"));
+    lines.push([t.title, t.cat === "profissional" ? "Profissional" : "Pessoal", DIFF[t.diff], XP[t.diff], t.daily ? repeatLabel(t) + (t.paused ? " (pausada)" : "") : "Uma vez",
+      t.due || "", dates, (t.subs || []).map((s) => s.t).join(" | "), t.note || ""].map(q).join(";"));
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
@@ -702,14 +1020,10 @@ $("wipeBtn").addEventListener("click", async () => {
   wipeArmed = false;
   btn.querySelector("b").textContent = "Apagando…";
   try {
-    const codes = profile?.groups || [];
-    for (const code of codes) { try { await deleteDoc(memberRef(code)); } catch (e) { } }
+    for (const code of profile?.groups || []) { try { await deleteDoc(memberRef(code)); } catch (e) { } }
     const all = await getDocs(tasksCol());
     let batch = writeBatch(db), n = 0;
-    for (const d of all.docs) {
-      batch.delete(d.ref); n++;
-      if (n === 450) { await batch.commit(); batch = writeBatch(db); n = 0; }
-    }
+    for (const d of all.docs) { batch.delete(d.ref); n++; if (n === 450) { await batch.commit(); batch = writeBatch(db); n = 0; } }
     await batch.commit();
     await deleteDoc(profileRef());
     toast("Seus dados foram apagados");
@@ -719,11 +1033,6 @@ $("wipeBtn").addEventListener("click", async () => {
     btn.querySelector("b").textContent = "Apagar todos os meus dados";
     btn.classList.remove("arm");
   }
-});
-
-$("titleSel").addEventListener("change", async (e) => {
-  try { await updateDoc(profileRef(), { title: e.target.value }); toast(e.target.value ? "Título atualizado" : "Título removido"); }
-  catch (err) { showDbError(err); }
 });
 
 /* =========================================================
@@ -760,6 +1069,7 @@ watchUser(async (u) => {
   $("userName").textContent = u.displayName || "";
   $("userEmail").textContent = u.email || "";
   for (const id of ["avatar", "avatarBig"]) { const im = $(id); if (u.photoURL) { im.src = u.photoURL; im.hidden = false; } else im.hidden = true; }
+  syncAddForm();
   render();
 
   await ensureProfile();
@@ -775,10 +1085,8 @@ watchUser(async (u) => {
   }, (e) => { loaded = true; showDbError(e); render(); }));
 });
 
-// Recalcula "hoje" quando o app volta a ficar visível (por exemplo, num novo dia).
 document.addEventListener("visibilitychange", () => { if (!document.hidden && uid) render(); });
 
-// Modo offline e instalação no celular.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 }

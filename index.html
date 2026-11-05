@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="Missões">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -53,7 +53,7 @@
     </div>
     <div class="stats">
       <div class="stat"><b id="sToday">0</b><span>XP hoje</span></div>
-      <div class="stat"><b id="sStreak">0</b><span>dias seguidos</span></div>
+      <div class="stat"><b id="sStreak">0</b><span>dias seguidos</span><span class="shield" id="sShield"></span></div>
       <div class="stat"><b id="sTotal">0</b><span>XP total</span></div>
     </div>
   </section>
@@ -86,8 +86,29 @@
           <button type="button" data-diff="2" aria-pressed="false">Média · 25</button>
           <button type="button" data-diff="3" aria-pressed="false">Difícil · 50</button>
         </div>
+      </div>
+      <div class="opts">
+        <div class="seg" role="group" aria-label="Repetição">
+          <button type="button" data-rep="once" aria-pressed="true">Uma vez</button>
+          <button type="button" data-rep="daily" aria-pressed="false">Todo dia</button>
+          <button type="button" data-rep="week" aria-pressed="false">Dias da semana</button>
+          <button type="button" data-rep="month" aria-pressed="false">Mensal</button>
+        </div>
+      </div>
+      <div class="opts" id="dueRow">
+        <div class="chips" role="group" aria-label="Prazo rápido">
+          <button type="button" data-quick="0">Hoje</button>
+          <button type="button" data-quick="1">Amanhã</button>
+          <button type="button" data-quick="fri">Sexta</button>
+          <button type="button" data-quick="none">Sem prazo</button>
+        </div>
         <input type="date" id="newDue" aria-label="Prazo">
-        <label class="chk"><input type="checkbox" id="newDaily"> Todo dia</label>
+      </div>
+      <div class="opts" id="daysRow" hidden>
+        <div class="days" id="newDays" role="group" aria-label="Dias da semana"></div>
+      </div>
+      <div class="opts" id="monthRow" hidden>
+        <label class="chk">Todo dia <input type="number" id="newMonthDay" min="1" max="31" value="10" aria-label="Dia do mês"> de cada mês</label>
       </div>
     </form>
 
@@ -103,8 +124,9 @@
         <button type="button" data-filter="profissional" aria-pressed="false">Profissional</button>
       </div>
     </div>
+    <input type="search" class="search" id="histSearch" placeholder="Buscar nas concluídas" aria-label="Buscar nas concluídas" hidden>
     <ul class="list" id="list"></ul>
-    <p class="note">Toque no nome de uma missão para editar.</p>
+    <p class="note">Toque numa missão para editar, anotar, criar subtarefas e mais opções.</p>
   </section>
 
   <!-- Progresso -->
@@ -167,7 +189,7 @@
       <h2>Privacidade</h2>
       <p class="muted">Suas missões ficam no Firebase, serviço do Google, e só a sua conta consegue lê-las. Nos grupos, os outros membros veem apenas seu nome, sua foto, seu nível e seu XP. O administrador do app tem acesso técnico ao banco de dados. Apagar seus dados nesta tela remove tudo o que foi salvo pelo app.</p>
     </div>
-    <p class="note">Diário de Missões · versão 3</p>
+    <p class="note">Diário de Missões · versão 4</p>
   </section>
 </div>
 
@@ -180,7 +202,7 @@
       <li><b>Escolha a dificuldade:</b> fácil vale 10 XP, média 25 e difícil 50.</li>
       <li><b>Conclua e ganhe XP.</b> Desmarcar devolve o XP, então vale ser honesto.</li>
       <li><b>Suba de nível.</b> O nível 2 pede 100 XP, e cada nível seguinte pede 50 a mais.</li>
-      <li><b>Mantenha a sequência:</b> conclua ao menos uma missão por dia.</li>
+      <li><b>Mantenha a sequência:</b> conclua ao menos uma missão por dia. Você tem um escudo por semana, que salva a sequência se falhar um dia.</li>
       <li><b>Desbloqueie conquistas:</b> são 83, com XP bônus, medalhas e títulos. Algumas são secretas.</li>
       <li><b>Chame amigos</b> na aba Grupos para disputar o ranking da semana.</li>
     </ol>
@@ -189,6 +211,6 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script type="module" src="app.js"></script>
+<script type="module" src="app.js?v=4"></script>
 </body>
 </html>
