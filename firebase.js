@@ -8,7 +8,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, setDoc, deleteDoc, onSnapshot
+  collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
+  arrayUnion, arrayRemove, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -22,8 +23,8 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-// Cache local: as missões continuam visíveis mesmo sem internet.
-const db = initializeFirestore(app, {
+// Cache local: as missões continuam visíveis e editáveis sem internet.
+export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
 
@@ -40,17 +41,10 @@ export async function login() {
     }
   }
 }
-
 export const logout = () => signOut(auth);
 export const watchUser = (cb) => onAuthStateChanged(auth, cb);
 
-// Dados de cada pessoa ficam em users/{uid}/tasks/{id}
-export function watchTasks(uid, onData, onError) {
-  return onSnapshot(collection(db, "users", uid, "tasks"), (snap) => {
-    const map = new Map();
-    snap.forEach((d) => map.set(d.id, d.data()));
-    onData(map);
-  }, onError);
-}
-export const saveTask = (uid, id, data) => setDoc(doc(db, "users", uid, "tasks", id), data);
-export const deleteTask = (uid, id) => deleteDoc(doc(db, "users", uid, "tasks", id));
+export {
+  collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
+  arrayUnion, arrayRemove, writeBatch
+};

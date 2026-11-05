@@ -1,9 +1,73 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Cada pessoa lê e grava só as próprias missões.
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+    function signedIn() { return request.auth != null; }
+    function isMe(uid) { return signedIn() && request.auth.uid == uid; }
+    function isDate(v) { return v is string && v.size() == 10; }
+
+    function validProfile(d) {
+      return d.keys().hasOnly(['name', 'photo', 'createdAt', 'onboarded', 'groups'])
+        && d.name is string && d.name.size() <= 80
+        && d.photo is string && d.photo.size() <= 600
+        && d.createdAt is number
+        && d.onboarded is bool
+        && d.groups is list && d.groups.size() <= 10;
+    }
+
+    function validTask(d) {
+      return d.keys().hasOnly(['title', 'cat', 'diff', 'daily', 'due', 'done', 'doneAt', 'created', 'updated'])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 140
+        && d.cat in ['pessoal', 'profissional']
+        && d.diff in [1, 2, 3]
+        && d.daily is bool
+        && (d.due == null || isDate(d.due))
+        && (!('done' in d) || (d.done is list && d.done.size() <= 4000))
+        && (!('doneAt' in d) || d.doneAt == null || isDate(d.doneAt))
+        && d.created is number;
+    }
+
+    function validMember(d) {
+      return d.keys().hasOnly(['name', 'photo', 'level', 'total', 'week', 'weekXp', 'updated'])
+        && d.name is string && d.name.size() <= 80
+        && d.photo is string && d.photo.size() <= 600
+        && d.level is number && d.total is number && d.weekXp is number
+        && d.total >= 0 && d.total <= 10000000
+        && isDate(d.week)
+        && d.updated is number;
+    }
+
+    // Perfil e missões: cada pessoa só acessa os próprios dados.
+    match /users/{uid} {
+      allow read, delete: if isMe(uid);
+      allow create, update: if isMe(uid) && validProfile(request.resource.data);
+
+      match /tasks/{taskId} {
+        allow read, delete: if isMe(uid);
+        allow create, update: if isMe(uid) && validTask(request.resource.data);
+      }
+    }
+
+    // Grupos: quem tem o código entra; membros veem nome, foto e XP uns dos outros.
+    match /groups/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['name', 'owner', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
+        && request.resource.data.createdAt is number;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+
+      match /members/{uid} {
+        allow read: if signedIn()
+          && exists(/databases/$(database)/documents/groups/$(code)/members/$(request.auth.uid));
+        allow create, update: if isMe(uid)
+          && exists(/databases/$(database)/documents/groups/$(code))
+          && validMember(request.resource.data);
+        allow delete: if isMe(uid)
+          || (signedIn() && get(/databases/$(database)/documents/groups/$(code)).data.owner == request.auth.uid);
+      }
     }
   }
 }
