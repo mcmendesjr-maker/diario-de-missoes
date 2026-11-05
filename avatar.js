@@ -1,9 +1,9 @@
 // Avatares de Horália: personagens em pixel art desenhados à mão por classe, variante, penteado e fase.
-// Cada imagem em horalia/ guarda as cores normais nos pixels de opacidade 255 e marca, pela opacidade,
+// Cada imagem em horalia/ (uma por classe, variante e penteado, com as 4 fases lado a lado) guarda as cores normais nos pixels de opacidade 255 e marca, pela opacidade,
 // os pixels que o app pinta: 254 = pele (nível no vermelho), 253 = cabelo (nível no vermelho), 252 = traje (cor original).
 // O app pinta pele, cabelo e traje com as cores escolhidas e guarda o resultado em memória.
 
-import BOXES from "./horalia-boxes.js?v=11";
+import BOXES from "./horalia-boxes.js?v=12";
 
 export const CLASSES = {
   guardiao: { n: "Guardião", f: "Guardiã", color: "#FFBD65", motto: "Um dia de cada vez, sem falhar.",
@@ -130,10 +130,11 @@ const spriteName = (a, tier) => `${a.cls}-${a.sex}-${a.hs}-${tier}`;
 const PET_FILE = { brotinho: 5, brasa: 1, nuvem: 4, pena: 2, tic: 6, faisca: 3 };
 
 async function paint(a, tier) {
-  const im = await loadImg(spriteName(a, tier) + ".png");
-  const c = document.createElement("canvas"); c.width = im.width; c.height = im.height;
+  // cada arquivo traz as 4 fases lado a lado (380 px cada)
+  const im = await loadImg(`${a.cls}-${a.sex}-${a.hs}.png`);
+  const c = document.createElement("canvas"); c.width = 380; c.height = 380;
   const x = c.getContext("2d", { willReadFrequently: true });
-  x.drawImage(im, 0, 0);
+  x.drawImage(im, (tier - 1) * 380, 0, 380, 380, 0, 0, 380, 380);
   const d = x.getImageData(0, 0, c.width, c.height), p = d.data;
   const sk = skinRamp(a.skin), hr = hairRamp(HAIR_TONES[a.hair][1]);
   const [, hue, sm, lm] = OUTFITS[a.outfit];

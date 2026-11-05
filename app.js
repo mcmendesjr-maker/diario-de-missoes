@@ -3,10 +3,10 @@ import {
   db, login, logout, watchUser,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
-} from "./firebase.js?v=11";
-import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=11";
-import { ICONS, iconSvg, TAG_COLORS, tagColor, tagColorName, readableTagColor, burst, confetti, countTo } from "./look.js?v=11";
-import { avatarHtml, warmAvatar, cleanAvatar, DEFAULT_AVATAR, CLASSES, HAIRSTYLES, TIERS, tierFor, tierTitle, classLabel, SKIN_TONES, HAIR_TONES, OUTFITS, PETS, PET_SRC, BGS, FRAMES, MOODS } from "./avatar.js?v=11";
+} from "./firebase.js?v=12";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=12";
+import { ICONS, iconSvg, TAG_COLORS, tagColor, tagColorName, readableTagColor, burst, confetti, countTo } from "./look.js?v=12";
+import { avatarHtml, warmAvatar, cleanAvatar, DEFAULT_AVATAR, CLASSES, HAIRSTYLES, TIERS, tierFor, tierTitle, classLabel, SKIN_TONES, HAIR_TONES, OUTFITS, PETS, PET_SRC, BGS, FRAMES, MOODS } from "./avatar.js?v=12";
 
 /* =========================================================
    Regras de jogo
