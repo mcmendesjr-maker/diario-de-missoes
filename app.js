@@ -3,10 +3,10 @@ import {
   db, login, logout, watchUser,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
-} from "./firebase.js?v=12";
-import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=12";
-import { ICONS, iconSvg, TAG_COLORS, tagColor, tagColorName, readableTagColor, burst, confetti, countTo } from "./look.js?v=12";
-import { avatarHtml, warmAvatar, cleanAvatar, DEFAULT_AVATAR, CLASSES, HAIRSTYLES, TIERS, tierFor, tierTitle, classLabel, SKIN_TONES, HAIR_TONES, OUTFITS, PETS, PET_SRC, BGS, FRAMES, MOODS } from "./avatar.js?v=12";
+} from "./firebase.js?v=13";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=13";
+import { ICONS, iconSvg, TAG_COLORS, tagColor, tagColorName, readableTagColor, burst, confetti, countTo } from "./look.js?v=13";
+import { avatarHtml, warmAvatar, cleanAvatar, DEFAULT_AVATAR, CLASSES, HAIRSTYLES, TIERS, tierFor, tierTitle, classLabel, SKIN_TONES, HAIR_TONES, OUTFITS, PETS, PET_SRC, BGS, FRAMES, MOODS } from "./avatar.js?v=13";
 
 /* =========================================================
    Regras de jogo
@@ -1214,24 +1214,24 @@ function dayMood() {
 }
 const usingAvatar = () => profile?.useAvatar !== false;
 const myAv = () => cleanAvatar(profile?.avatar || DEFAULT_AVATAR);
-function myAvatarHtml(size, mood = null, view = "full") {
-  if (usingAvatar()) return avatarHtml(myAv(), { size, mood, view, level: loaded ? curLevel() : 1 });
+function myAvatarHtml(size, pending = null, view = "full") {
+  if (usingAvatar()) return avatarHtml(myAv(), { size, pending, view, level: loaded ? curLevel() : 1 });
   if (user?.photoURL) return '<img src="' + esc(user.photoURL) + '" alt="" referrerpolicy="no-referrer" width="' + size + '" height="' + size + '">';
-  return avatarHtml(DEFAULT_AVATAR, { size, mood, view });
+  return avatarHtml(DEFAULT_AVATAR, { size, pending, view });
 }
 let lastMoodSig = "";
 function renderMyAvatar() {
   if (!user) return;
   const m = dayMood(), md = MOODS[m.key];
   const lvl = loaded ? curLevel() : 1;
-  const sig = m.key + "|" + usingAvatar() + "|" + JSON.stringify(profile?.avatar || {}) + "|" + (user.photoURL || "") + "|" + tierFor(lvl);
+  const sig = m.pending + "|" + usingAvatar() + "|" + JSON.stringify(profile?.avatar || {}) + "|" + (user.photoURL || "") + "|" + tierFor(lvl);
   const box = $("avatar");
   if (sig !== lastMoodSig) {
     const prev = lastMoodSig.split("|");
-    const changed = lastMoodSig && prev[0] !== m.key;
+    const changed = lastMoodSig && prev[0] !== String(m.pending);
     const evolved = lastMoodSig && prev[4] && +prev[4] < tierFor(lvl);
     lastMoodSig = sig;
-    box.innerHTML = myAvatarHtml(120, m.key);
+    box.innerHTML = myAvatarHtml(120, m.pending);
     box.style.setProperty("--ring", md.ring);
     if (changed || evolved) { box.classList.remove("bounce"); void box.offsetWidth; box.classList.add("bounce"); }
     if (evolved && usingAvatar()) { toast("Seu personagem evoluiu: " + esc(tierTitle(myAv(), lvl)) + "!"); confetti(); }
@@ -1242,7 +1242,7 @@ function renderMyAvatar() {
   $("useAvatar").checked = usingAvatar();
 }
 
-let avDraft = null, avTab = "classe", avMood = "calmo", avTier = 1;
+let avDraft = null, avTab = "classe", avTier = 1;
 function openAvatarEditor() {
   avDraft = cleanAvatar(profile?.avatar || DEFAULT_AVATAR);
   avTab = profile?.avatar?.v === 2 ? "visual" : "classe";
@@ -1271,7 +1271,7 @@ function outfitSwatch(o) {
   return "hsl(" + o[1] + " " + Math.round(s * 100) + "% " + Math.round(l * 100) + "%)";
 }
 function renderAvatarEditor() {
-  $("avPreview").innerHTML = avatarHtml(avDraft, { size: 170, tier: avTier, mood: avMood }) +
+  $("avPreview").innerHTML = avatarHtml(avDraft, { size: 170, tier: avTier }) +
     '<div class="tierpick" role="group" aria-label="Fases">' + TIERS.map(([n, lv], i) =>
       '<button type="button" data-avtier="' + (i + 1) + '" aria-pressed="' + (avTier === i + 1) + '">' + avatarHtml(avDraft, { size: 46, tier: i + 1, view: "face" }) +
       "<span>" + esc(CLASSES[avDraft.cls].tiers[i]) + "<small>nível " + lv + (i === 3 ? "+" : "") + "</small></span></button>").join("") + "</div>";
@@ -1314,11 +1314,6 @@ $("avClose").addEventListener("click", () => { $("avEditor").hidden = true; });
 document.querySelectorAll("[data-avtab]").forEach((b) => b.addEventListener("click", () => {
   avTab = b.dataset.avtab;
   document.querySelectorAll("[data-avtab]").forEach((x) => x.setAttribute("aria-pressed", x === b));
-  renderAvatarEditor();
-}));
-document.querySelectorAll("[data-avmood]").forEach((b) => b.addEventListener("click", () => {
-  avMood = b.dataset.avmood;
-  document.querySelectorAll("[data-avmood]").forEach((x) => x.setAttribute("aria-pressed", x === b));
   renderAvatarEditor();
 }));
 $("avPreview").addEventListener("click", (e) => {

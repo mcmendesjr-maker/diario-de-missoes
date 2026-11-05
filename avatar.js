@@ -3,7 +3,7 @@
 // os pixels que o app pinta: 254 = pele (nível no vermelho), 253 = cabelo (nível no vermelho), 252 = traje (cor original).
 // O app pinta pele, cabelo e traje com as cores escolhidas e guarda o resultado em memória.
 
-import BOXES from "./horalia-boxes.js?v=12";
+import BOXES from "./horalia-boxes.js?v=13";
 
 export const CLASSES = {
   guardiao: { n: "Guardião", f: "Guardiã", color: "#FFBD65", motto: "Um dia de cada vez, sem falhar.",
@@ -191,19 +191,26 @@ function ensure(a, tier, view) {
   return k;
 }
 
-const SPARK = '<svg class="fx fx-a" viewBox="0 0 10 10" aria-hidden="true" shape-rendering="crispEdges"><path d="M4 0h2v4h4v2H6v4H4V6H0V4h4z" fill="#FFE27A"/></svg><svg class="fx fx-b" viewBox="0 0 10 10" aria-hidden="true" shape-rendering="crispEdges"><path d="M4 0h2v4h4v2H6v4H4V6H0V4h4z" fill="#FFE27A"/></svg>';
-const FOCUS = '<svg class="fx fx-c" viewBox="0 0 12 12" aria-hidden="true" shape-rendering="crispEdges"><path d="M0 2h2v2H0zM2 0h2v2H2zM6 0h2v4H6zM10 2h2v2h-2zM8 4h2v2H8z" fill="#FFBD65"/></svg>';
-const SWEAT = '<svg class="fx fx-d" viewBox="0 0 6 8" aria-hidden="true" shape-rendering="crispEdges"><path d="M2 0h2v2h1v2h1v3H5v1H1V7H0V4h1V2h1z" fill="#8FD8FF"/><path d="M2 4h1v2H2z" fill="#E8F8FF"/></svg><svg class="fx fx-a" viewBox="0 0 12 12" aria-hidden="true" shape-rendering="crispEdges"><path d="M0 0h2v2H0zM2 2h2v2H2zM0 6h4v2H0zM2 10h2v2H2z" fill="#FF7A6B"/></svg>';
+// Emoji do humor, escolhido pela quantidade de missões pendentes do dia.
+export function moodEmoji(pending) {
+  if (pending <= 0) return ["😎", "Tudo feito por hoje"];
+  if (pending <= 2) return ["🙂", "Dia tranquilo"];
+  if (pending <= 5) return ["😤", "Dia movimentado"];
+  if (pending <= 8) return ["😰", "Dia puxado"];
+  return ["🥵", "Dia muito puxado"];
+}
 
 // HTML do avatar. view: "full" (corpo inteiro) ou "face" (retrato, para listas).
-export function avatarHtml(raw, { size = 120, level = 1, view = "full", mood = null, title = "", tier = null } = {}) {
+// pending: número de missões pendentes (mostra o emoji em balão); null não mostra.
+export function avatarHtml(raw, { size = 120, level = 1, view = "full", pending = null, title = "", tier = null } = {}) {
   const a = cleanAvatar(raw);
   const t = tier || tierFor(level);
   const k = ensure(a, t, view);
   const u = urls.get(k);
   const bg = BGS[a.bg], frame = FRAMES[a.frame][1];
   const style = "width:" + size + "px;height:" + size + "px;" + (bg === "guilda" ? "" : "--avbg:" + bg + ";") + (frame ? "--frame:" + frame + ";--fw:" + Math.max(2, Math.round(size * 0.05)) + "px;" : "");
-  const fx = mood === "calmo" ? SPARK : mood === "focado" ? FOCUS : mood === "estressado" ? SWEAT : "";
+  const em = pending === null ? null : moodEmoji(pending);
+  const fx = em ? '<span class="moodpop" title="' + em[1] + '" aria-label="' + em[1] + '">' + em[0] + "</span>" : "";
   return '<span class="hav ' + view + (bg === "guilda" ? " guild" : "") + (frame ? " framed" : "") + '" style="' + style + '" role="img" aria-label="' + (title || classLabel(a)).replace(/"/g, "&quot;") + '">' +
     '<img alt="" data-avk="' + k + '" src="' + (u || BLANK) + '"' + (u ? ' class="on"' : "") + ">" + fx + "</span>";
 }
