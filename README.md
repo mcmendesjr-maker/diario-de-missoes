@@ -10,7 +10,9 @@ Acesse: https://mcmendesjr-maker.github.io/diario-de-missoes/
 - `app.js`: telas, regras de XP, grupos e ranking
 - `achievements.js`: catálogo das 83 conquistas
 - `look.js`: ícones, cores das tags e animações
-- `avatar.js`: peças do avatar em pixel art (grade 32x32)
+- `avatar.js`: avatares de Horália (classes, fases, cores de pele, cabelo e traje)
+- `horalia-boxes.js`: recorte do retrato de cada personagem
+- `horalia/`: imagens dos 128 personagens, dos 6 companheiros e da Guilda
 - `firebase.js`: conexão com login e banco de dados
 - `sw.js`: modo offline (a cada atualização, aumente `VERSION` aqui e o `?v=` no index.html e no app.js)
 - `manifest.json` e `icons/`: instalação no celular

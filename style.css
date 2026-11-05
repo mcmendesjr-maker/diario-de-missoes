@@ -517,3 +517,75 @@ details.more[open] summary{margin-bottom:8px}
 .avsvg{image-rendering:pixelated}
 .avopt svg{width:72px;height:72px}
 .avgrid{grid-template-columns:repeat(auto-fill,minmax(92px,1fr))}
+/* ===== v11 · avatares de Horália, cores de tag e perfil no grupo ===== */
+.hav{position:relative;display:inline-block;flex:none;border-radius:50%;overflow:hidden;background:var(--avbg,#3A2C17);isolation:isolate}
+.hav.guild{background:#3A2C17 url("horalia/guilda.webp") 72% 50%/cover}
+.hav.framed::after{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 0 var(--fw,4px) var(--frame),inset 0 0 0 calc(var(--fw,4px) + 1px) #1E1620;z-index:2;pointer-events:none}
+.hav img{position:absolute;display:block;opacity:0;transition:opacity .2s;z-index:-1}
+.hav img.on{opacity:1}
+.hav.full img{left:50%;bottom:-5%;width:112%;height:auto;max-width:none;transform:translateX(-50%);border-radius:0;image-rendering:auto}
+.hav.face img{inset:0;width:100%;height:100%;border-radius:0}
+.hav .fx{position:absolute;z-index:1;image-rendering:pixelated}
+.hav .fx-a{left:12%;top:14%;width:20%;height:20%}
+.hav .fx-b{right:18%;top:24%;width:12%;height:12%}
+.hav .fx-c{right:12%;top:13%;width:22%;height:22%}
+.hav .fx-d{left:62%;top:20%;width:13%;height:18%}
+.heroav .hav{width:100%!important;height:100%!important}
+.avbig .hav,.rkav .hav{width:100%!important;height:100%!important}
+.avpreview{display:grid;justify-items:center;gap:10px}
+.avpreview > .hav{filter:drop-shadow(0 8px 18px rgba(0,0,0,.25));box-shadow:0 0 0 4px var(--bg-2),0 0 0 7px var(--turq)}
+.tierpick{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+.tierpick button{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:transparent;border-radius:14px;padding:4px 10px 4px 4px;font-size:12px;font-weight:700;color:var(--muted);text-align:left}
+.tierpick button span{display:grid;line-height:1.15}
+.tierpick small{font-weight:600;font-size:10px;opacity:.8}
+.tierpick button[aria-pressed="true"]{border-color:var(--turq);box-shadow:0 0 0 1px var(--turq);color:var(--ink)}
+.avsheet{grid-template-rows:auto auto auto auto minmax(0,1fr) auto}
+.avopt .hav{margin-bottom:2px}
+.avopt[data-locked] .hav,.avopt[data-locked] .petimg,.clsopt[data-locked] .hav{filter:grayscale(1) opacity(.45)}
+.avgrid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.petimg{width:64px;height:64px;object-fit:contain;image-rendering:pixelated}
+.nopet{width:64px;height:64px;display:grid;place-items:center;font-size:26px;color:var(--muted)}
+.clsgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.clsopt{position:relative;display:grid;justify-items:center;gap:4px;text-align:center;border:1px solid var(--line);background:var(--surface-2);border-radius:16px;padding:10px 8px 12px;color:var(--ink)}
+.clsopt[aria-pressed="true"]{border-color:var(--c);box-shadow:0 0 0 2px var(--c)}
+.clsopt .cn{font-weight:800;font-size:15px;color:var(--c)}
+.clsopt .cm{font-size:12px;color:var(--muted);line-height:1.35}
+.clsopt .cp{font-size:11.5px;line-height:1.35;background:var(--surface);border-radius:10px;padding:6px 8px}
+.clsopt .lock{position:absolute;inset:8px 8px auto auto;font-style:normal;font-size:10px;background:var(--bg);color:var(--orange-ink);border-radius:8px;padding:3px 6px}
+.sw[data-locked]{display:grid;place-items:center;font-size:12px;filter:saturate(.4)}
+.sw.guildsw{background:#3A2C17 url("horalia/guilda.webp") 72% 50%/cover}
+/* tags: paleta de cores */
+#tagList li{flex-wrap:wrap}
+.tpal{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;padding:8px 0 4px 2px}
+.tpal .sw{width:30px;height:30px}
+.tpal .custom{position:relative;display:grid;place-items:center;cursor:pointer;background:conic-gradient(#FF6B6B,#F5E06E,#9BE36B,#2FD0C8,#6EC8FF,#B9A3FF,#FF8FC8,#FF6B6B)}
+.tpal .custom span{font-weight:800;color:#071317;background:rgba(255,255,255,.75);border-radius:50%;width:16px;height:16px;line-height:16px;text-align:center;font-size:13px}
+.tpal .custom.on{box-shadow:0 0 0 3px var(--surface),0 0 0 5px var(--turq)}
+.tpal .custom input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:0;padding:0}
+/* perfil de membro */
+.ranklist .rk[data-member]{cursor:pointer}
+.ranklist .rk[data-member]:hover{background:var(--surface-2)}
+.ranklist .rk[data-member]:focus-visible{outline:2px solid var(--turq);outline-offset:2px}
+.mbsheet{max-width:460px;gap:14px}
+.mbtop{display:flex;align-items:center;gap:16px}
+.mbtop > .hav{box-shadow:0 0 0 4px var(--bg-2),0 0 0 7px var(--orange)}
+.mbphoto,.ph0.big{width:96px;height:96px;border-radius:50%;object-fit:cover;flex:none}
+.ph0.big{display:grid;place-items:center;font-size:40px;font-weight:800;background:var(--surface-2)}
+.mbinfo{display:grid;gap:6px;justify-items:start;min-width:0}
+.mbinfo h2{margin:0;font-size:22px;overflow-wrap:anywhere}
+.mbcls{font-weight:800;font-size:14px;color:var(--c)}
+.mstats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mstat{background:var(--surface-2);border-radius:14px;padding:10px 12px;display:grid;gap:2px}
+.mstat span{font-size:12px;font-weight:700;color:var(--muted)}
+.mstat b{font-size:24px;line-height:1.1}
+.mstat em{font-style:normal;font-size:11px;color:var(--muted)}
+@media (max-width:420px){.mbtop{flex-direction:column;text-align:center}.mbinfo{justify-items:center}.clsgrid{grid-template-columns:1fr 1fr}.clsopt .cm{display:none}}
+.hero-top .rank{white-space:normal;line-height:1.2;flex-basis:100%}
+.avtabs{flex-wrap:nowrap;justify-content:flex-start}
+.avtabs button{flex:none}
+.avpreview > .hav{width:140px!important;height:140px!important}
+.tierpick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;width:100%}
+.tierpick button{flex-direction:column;gap:3px;padding:6px 4px;text-align:center;border-radius:12px}
+.tierpick button .hav{width:38px!important;height:38px!important}
+.tierpick button span{justify-items:center;font-size:11px}
+@media (min-width:640px){.avpreview > .hav{width:170px!important;height:170px!important}}

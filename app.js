@@ -3,10 +3,10 @@ import {
   db, login, logout, watchUser,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
-} from "./firebase.js?v=10";
-import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=10";
-import { ICONS, iconSvg, TAG_COLORS, tagColor, burst, confetti, countTo } from "./look.js?v=10";
-import { avatarSvg, cleanAvatar, DEFAULT_AVATAR, SKINS, HAIR_COLORS, CLOTH_COLORS, BG_COLORS, HAIRS, EYES, MOUTHS, LASHES, LIPS, BEARDS, BODIES, GLASSES, EARRINGS, ITEMS, GEAR, FRAMES, MOODS, PRESETS } from "./avatar.js?v=10";
+} from "./firebase.js?v=11";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=11";
+import { ICONS, iconSvg, TAG_COLORS, tagColor, tagColorName, readableTagColor, burst, confetti, countTo } from "./look.js?v=11";
+import { avatarHtml, warmAvatar, cleanAvatar, DEFAULT_AVATAR, CLASSES, HAIRSTYLES, TIERS, tierFor, tierTitle, classLabel, SKIN_TONES, HAIR_TONES, OUTFITS, PETS, PET_SRC, BGS, FRAMES, MOODS } from "./avatar.js?v=11";
 
 /* =========================================================
    Regras de jogo
@@ -115,6 +115,28 @@ function bonusInfo() {
 const isDoneOn = (t, d) => t.daily ? (t.done || []).includes(d) : t.doneAt === d;
 const isDoneToday = (t) => t.daily ? (t.done || []).includes(today()) : !!t.doneAt;
 
+// Classe do avatar em cada dia (os talentos valem a partir da data em que a classe foi escolhida).
+function classOn(d) {
+  const a = profile?.avatar;
+  if (!a || a.v !== 2 || profile?.useAvatar === false) return null;
+  let cls = null;
+  for (const e of a.hist || []) { const [since, c] = String(e).split(":"); if (since <= d) cls = c; }
+  return cls;
+}
+// Talento da classe: +5 XP quando a missão combina com a classe.
+function talentXp(t, d) {
+  const c = classOn(d);
+  if (c === "arcanista") return t.diff === 3 ? 5 : 0;
+  if (c === "batedor") return !t.daily && t.due && t.doneAt && t.doneAt < t.due ? 5 : 0;
+  if (c === "artifice") {
+    const subs = t.subs || [];
+    if (!subs.length || (t.daily && t.subsDay !== d)) return 0;
+    return subs.every((x) => x.d) ? 5 : 0;
+  }
+  return 0;
+}
+const shieldLimit = (d) => (classOn(d) === "guardiao" ? 2 : 1);
+
 function computeStats() {
   const td = today(), ws = weekStart();
   const byDay = {}, countDay = {}, hardDay = {}, weekCats = {};
@@ -124,7 +146,7 @@ function computeStats() {
   const lateByWeek = {};
 
   for (const t of tasks.values()) {
-    const xp = XP[t.diff] || 10;
+    const base = XP[t.diff] || 10;
     if (t.daily) { dailyExists = true; maxDaily = Math.max(maxDaily, (t.done || []).length); }
     if (!t.daily && t.due) {
       withDue++;
@@ -137,6 +159,7 @@ function computeStats() {
       ? (t.done || []).map((d) => [d, t.hours ? t.hours[d] : undefined])
       : (t.doneAt ? [[t.doneAt, t.doneHour]] : []);
     for (const [d, h] of entries) {
+      const xp = base + talentXp(t, d);
       byDay[d] = (byDay[d] || 0) + xp; countDay[d] = (countDay[d] || 0) + 1;
       missionXp += xp; count++; cats[t.cat] = (cats[t.cat] || 0) + 1;
       if (t.diff === 3) { hard++; hardDay[d] = (hardDay[d] || 0) + 1; }
@@ -210,7 +233,7 @@ function computeStats() {
   };
 
   return {
-    byDay, count, cats, streak, overdue, ctx, bonus, shields,
+    byDay, countDay, count, cats, streak, overdue, ctx, bonus, shields,
     missionXp, total: missionXp + bonus.total,
     todayXp: (byDay[td] || 0) + bonus.today,
     weekXp: weekMission + bonus.week, week: ws,
@@ -335,14 +358,15 @@ function render() {
 
 function renderStatus(s, L) {
   $("lvl").textContent = L.lvl;
-  $("rank").textContent = rankOf(L.lvl);
+  $("rank").textContent = usingAvatar() ? classLabel(myAv()) + " · " + tierTitle(myAv(), L.lvl) : rankOf(L.lvl);
   $("barFill").style.width = (L.into / L.need * 100) + "%";
   $("barNow").textContent = L.into + " / " + L.need;
   $("barNext").textContent = "faltam " + (L.need - L.into) + " XP para o nível " + (L.lvl + 1);
   $("sToday").textContent = s.todayXp;
   $("sStreak").textContent = s.streak;
-  const usedThisWeek = [...s.shields].some((d) => d >= weekStart());
-  $("sShield").textContent = usedThisWeek ? "escudo usado" : "escudo pronto";
+  const lim = shieldLimit(today()), used = [...s.shields].filter((d) => d >= weekStart()).length;
+  const usedThisWeek = used >= lim;
+  $("sShield").textContent = usedThisWeek ? (lim > 1 ? "escudos usados" : "escudo usado") : lim - used > 1 ? (lim - used) + " escudos prontos" : "escudo pronto";
   $("sShield").classList.toggle("used", usedThisWeek);
   countTo($("sTotal"), s.total);
   $("sAch").textContent = ALL.filter((a) => profile?.ach?.[a.id]).length + "/" + TOTAL;
@@ -593,9 +617,9 @@ function renderGroups() {
     const members = [...g.members].sort((a, b) => pts(b) - pts(a) || b.total - a.total);
     const champ = [...g.members].sort((a, b) => lastPts(b) - lastPts(a))[0];
     const rows = members.map((m, i) =>
-      '<li class="rk' + (m.id === uid ? " me" : "") + '"><span class="pos">' + (i + 1) + "</span>" +
-      (m.avatar ? '<span class="rkav">' + avatarSvg(m.avatar, { size: 34 }) + "</span>" : m.photo ? '<img src="' + esc(m.photo) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph0">' + esc((m.name || "?").charAt(0).toUpperCase()) + "</span>") +
-      '<span class="nm">' + esc(m.name || "Sem nome") + (m.id === uid ? " (você)" : "") + "<small>Nível " + (m.level || 1) + " · " + esc(m.title || rankOf(m.level || 1)) + "</small></span>" +
+      '<li class="rk' + (m.id === uid ? " me" : "") + '" data-member="' + esc(m.id) + '" tabindex="0" role="button" aria-label="Ver perfil de ' + esc(m.name || "Sem nome") + '"><span class="pos">' + (i + 1) + "</span>" +
+      (m.avatar ? '<span class="rkav">' + avatarHtml(m.avatar, { size: 34, level: m.level || 1, view: "face" }) + "</span>" : m.photo ? '<img src="' + esc(m.photo) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph0">' + esc((m.name || "?").charAt(0).toUpperCase()) + "</span>") +
+      '<span class="nm">' + esc(m.name || "Sem nome") + (m.id === uid ? " (você)" : "") + "<small>Nível " + (m.level || 1) + " · " + esc(m.title || (m.avatar?.v === 2 ? classLabel(cleanAvatar(m.avatar)) + " " + tierTitle(cleanAvatar(m.avatar), m.level || 1) : rankOf(m.level || 1))) + "</small></span>" +
       '<span class="pts">' + pts(m) + " XP</span>" +
       (isOwner && m.id !== uid ? '<button type="button" class="leave" data-gact="kick" data-uid="' + esc(m.id) + '">' + (ui.kick === m.id ? "Remover?" : "✕") + "</button>" : "") +
       "</li>").join("");
@@ -1029,7 +1053,7 @@ async function checkShield(s) {
   if (!s.byDay[dby] && !shields.has(dby)) return;                   // não havia sequência para salvar
   if ((profile.createdAt || Date.now()) > new Date(yd + "T23:59:59").getTime()) return;
   const wk = weekStart(yd);
-  if ([...shields].some((d) => weekStart(d) === wk)) return;        // já usou nesta semana
+  if ([...shields].filter((d) => weekStart(d) === wk).length >= shieldLimit(yd)) return; // já usou os escudos da semana
   shieldBusy = true;
   try {
     const list = [...shields, yd].sort().slice(-400);
@@ -1087,17 +1111,21 @@ document.querySelectorAll("[data-cards]").forEach((b) => b.addEventListener("cli
   try { await updateDoc(profileRef(), { cardStyle: b.dataset.cards }); } catch (e) { showDbError(e); }
 }));
 
-let tagArmed = null;
+let tagArmed = null, tagColorOpen = null;
 function renderTagList() {
   const list = tagsList();
   $("tagCount").textContent = list.length + "/30";
-  if (document.activeElement && document.activeElement.closest("#tagList")) return; // não atrapalha a digitação
+  if (document.activeElement && document.activeElement.matches("#tagList [data-tname]")) return; // não atrapalha a digitação
   $("tagList").innerHTML = list.length ? list.map((g) => {
     const used = [...tasks.values()].filter((t) => (t.tags || []).includes(g.id)).length;
-    return '<li data-tid="' + esc(g.id) + '"><button type="button" class="swatch" data-tcolor style="background:' + tagColor(g.c) + '" aria-label="Trocar cor (' + esc(TAG_COLORS[g.c]?.[1] || "") + ')"></button>' +
+    const open = tagColorOpen === g.id, cur = tagColor(g.c);
+    const pal = open ? '<div class="tpal" role="group" aria-label="Cor da tag ' + esc(g.n) + '">' +
+      TAG_COLORS.map(([c, n], i) => '<button type="button" class="sw" data-tsetc="' + i + '" aria-pressed="' + (g.c === i) + '" style="background:' + c + '" aria-label="' + n + '" title="' + n + '"></button>').join("") +
+      '<label class="sw custom' + (typeof g.c === "string" ? " on" : "") + '" title="Escolher qualquer cor" style="' + (typeof g.c === "string" ? "background:" + cur : "") + '"><input type="color" data-tcustom value="' + cur + '" aria-label="Cor personalizada"><span aria-hidden="true">+</span></label></div>' : "";
+    return '<li data-tid="' + esc(g.id) + '"' + (open ? ' class="copen"' : "") + '><button type="button" class="swatch" data-tcolor aria-expanded="' + open + '" style="background:' + cur + '" aria-label="Escolher cor (atual: ' + esc(tagColorName(g.c)) + ')"></button>' +
       '<input type="text" value="' + esc(g.n) + '" maxlength="24" data-tname aria-label="Nome da tag">' +
       '<span class="hint">' + used + (used === 1 ? " missão" : " missões") + "</span>" +
-      '<button type="button" class="leave" data-tdel>' + (tagArmed === g.id ? "Excluir?" : "✕") + "</button></li>";
+      '<button type="button" class="leave" data-tdel>' + (tagArmed === g.id ? "Excluir?" : "✕") + "</button>" + pal + "</li>";
   }).join("") : '<li class="hint">Nenhuma tag criada ainda.</li>';
 }
 async function saveTags(list) {
@@ -1108,7 +1136,9 @@ $("tagList").addEventListener("click", async (e) => {
   const li = e.target.closest("[data-tid]"); if (!li) return;
   const id = li.dataset.tid, list = tagsList().map((g) => ({ ...g }));
   const g = list.find((x) => x.id === id); if (!g) return;
-  if (e.target.closest("[data-tcolor]")) { g.c = (g.c + 1) % TAG_COLORS.length; await saveTags(list); renderTagList(); render(); return; }
+  if (e.target.closest("[data-tcolor]")) { tagColorOpen = tagColorOpen === id ? null : id; renderTagList(); return; }
+  const pc = e.target.closest("[data-tsetc]");
+  if (pc) { g.c = +pc.dataset.tsetc; tagColorOpen = null; await saveTags(list); renderTagList(); render(); return; }
   if (e.target.closest("[data-tdel]")) {
     if (tagArmed !== id) { tagArmed = id; renderTagList(); setTimeout(() => { if (tagArmed === id) { tagArmed = null; renderTagList(); } }, 3000); return; }
     tagArmed = null;
@@ -1119,6 +1149,13 @@ $("tagList").addEventListener("click", async (e) => {
   }
 });
 $("tagList").addEventListener("change", async (e) => {
+  if (e.target.matches("[data-tcustom]")) {
+    const id = e.target.closest("[data-tid]").dataset.tid, c = readableTagColor(e.target.value);
+    tagColorOpen = null;
+    await saveTags(tagsList().map((g) => g.id === id ? { ...g, c } : g));
+    if (c !== e.target.value.toLowerCase()) toast("Clareei um pouco a cor para o texto continuar legível");
+    renderTagList(); render(); return;
+  }
   if (!e.target.matches("[data-tname]")) return;
   const id = e.target.closest("[data-tid]").dataset.tid, name = e.target.value.trim().slice(0, 24);
   if (!name) { renderTagList(); return; }
@@ -1132,37 +1169,25 @@ $("tagForm").addEventListener("submit", async (e) => {
 });
 
 /* =========================================================
-   Avatar
+   Avatar (Horália)
    ========================================================= */
 // O que cada peça especial pede para ser liberada.
 const anyTier = (n) => Object.keys(profile?.ach || {}).some((id) => id.endsWith("-" + n));
 const hasAch = (id) => !!profile?.ach?.[id];
 const curLevel = () => levelFor(computeStats().total).lvl;
 const UNLOCKS = {
-  item: {
-    fone: [() => hasAch("missoes-2"), "Missionário Prata"],
-    gato: [() => hasAch("sequencia-2"), "Maratonista Prata (30 dias seguidos)"],
-    moto: [() => hasAch("dificeis-2"), "Desafiante Prata"],
-    espacial: [() => curLevel() >= 10, "Nível 10"],
-    coroa: [() => curLevel() >= 20, "Nível 20"],
-    aureola: [() => SECRETS.some((x) => hasAch(x.id)), "Qualquer conquista secreta"],
-    mago: [() => curLevel() >= 12, "Nível 12"],
+  outfit: {
+    6: [() => curLevel() >= 10, "Nível 10"],
+    7: [() => anyTier(2), "Qualquer medalha de prata"],
   },
-  gear: {
-    cajado: [() => curLevel() >= 8, "Nível 8"],
-    capa: [() => curLevel() >= 15, "Nível 15"],
-    espada: [() => hasAch("pontual-2"), "Pontual Prata"],
-    escudo: [() => hasAch("semanasematraso"), "Semana Sem Atraso"],
+  pet: {
+    brotinho: [() => computeStats().count >= 1, "Concluir a primeira missão"],
+    brasa: [() => hasAch("sequencia-1"), "Maratonista Bronze (7 dias seguidos)"],
+    nuvem: [() => hasAch("pessoal-2"), "Vida Pessoal Prata (50 missões pessoais)"],
+    pena: [() => hasAch("missoes-2"), "Missionário Prata (50 missões)"],
+    tic: [() => hasAch("profissional-2"), "Carreira Prata (50 missões profissionais)"],
+    faisca: [() => curLevel() >= 20, "Nível 20"],
   },
-  glasses: {
-    sol: [() => curLevel() >= 5, "Nível 5"],
-    aviador: [() => hasAch("madrugador-3"), "Madrugador Ouro"],
-  },
-  body: {
-    jaqueta: [() => curLevel() >= 3, "Nível 3"],
-    terno: [() => hasAch("profissional-2"), "Carreira Prata"],
-  },
-  mouth: { lingua: [() => hasAch("sextou"), "Uma conquista secreta"] },
   frame: {
     bronze: [() => anyTier(1), "Qualquer medalha de bronze"],
     prata: [() => anyTier(2), "Qualquer medalha de prata"],
@@ -1171,6 +1196,13 @@ const UNLOCKS = {
   },
 };
 const lockOf = (field, key) => { const u = UNLOCKS[field]?.[key]; return u && !u[0]() ? u[1] : null; };
+const CLASS_DAYS = 30; // troca de classe: uma vez a cada 30 dias
+function classLock() {
+  const a = profile?.avatar;
+  if (!a || a.v !== 2 || !a.clsAt) return 0;
+  const left = Math.ceil((a.clsAt + CLASS_DAYS * 86400000 - Date.now()) / 86400000);
+  return left > 0 ? left : 0;
+}
 
 // Humor do dia: pela quantidade de missões que ainda faltam hoje.
 function dayMood() {
@@ -1181,63 +1213,100 @@ function dayMood() {
   return { key, pending };
 }
 const usingAvatar = () => profile?.useAvatar !== false;
-function myAvatarHtml(size, mood = null) {
-  if (usingAvatar()) return avatarSvg(profile?.avatar || DEFAULT_AVATAR, { size, mood });
+const myAv = () => cleanAvatar(profile?.avatar || DEFAULT_AVATAR);
+function myAvatarHtml(size, mood = null, view = "full") {
+  if (usingAvatar()) return avatarHtml(myAv(), { size, mood, view, level: loaded ? curLevel() : 1 });
   if (user?.photoURL) return '<img src="' + esc(user.photoURL) + '" alt="" referrerpolicy="no-referrer" width="' + size + '" height="' + size + '">';
-  return avatarSvg(DEFAULT_AVATAR, { size, mood });
+  return avatarHtml(DEFAULT_AVATAR, { size, mood, view });
 }
 let lastMoodSig = "";
 function renderMyAvatar() {
   if (!user) return;
   const m = dayMood(), md = MOODS[m.key];
-  const sig = m.key + "|" + usingAvatar() + "|" + JSON.stringify(profile?.avatar || {}) + "|" + (user.photoURL || "");
+  const lvl = loaded ? curLevel() : 1;
+  const sig = m.key + "|" + usingAvatar() + "|" + JSON.stringify(profile?.avatar || {}) + "|" + (user.photoURL || "") + "|" + tierFor(lvl);
   const box = $("avatar");
   if (sig !== lastMoodSig) {
-    const changed = lastMoodSig && lastMoodSig.split("|")[0] !== m.key;
+    const prev = lastMoodSig.split("|");
+    const changed = lastMoodSig && prev[0] !== m.key;
+    const evolved = lastMoodSig && prev[4] && +prev[4] < tierFor(lvl);
     lastMoodSig = sig;
     box.innerHTML = myAvatarHtml(120, m.key);
     box.style.setProperty("--ring", md.ring);
-    if (changed) { box.classList.remove("bounce"); void box.offsetWidth; box.classList.add("bounce"); }
+    if (changed || evolved) { box.classList.remove("bounce"); void box.offsetWidth; box.classList.add("bounce"); }
+    if (evolved && usingAvatar()) { toast("Seu personagem evoluiu: " + esc(tierTitle(myAv(), lvl)) + "!"); confetti(); }
   }
   box.hidden = false;
   $("moodChip").innerHTML = '<i style="background:' + md.ring + '"></i>' + md.name + " · " + (m.pending === 0 ? "nada pendente" : m.pending + (m.pending === 1 ? " pendente" : " pendentes"));
-  $("avatarBig").innerHTML = myAvatarHtml(64);
+  $("avatarBig").innerHTML = myAvatarHtml(64, null, "face");
   $("useAvatar").checked = usingAvatar();
 }
 
-let avDraft = null, avTab = "rosto", avMood = "calmo";
+let avDraft = null, avTab = "classe", avMood = "calmo", avTier = 1;
 function openAvatarEditor() {
   avDraft = cleanAvatar(profile?.avatar || DEFAULT_AVATAR);
-  avTab = profile?.avatar ? "rosto" : "estilo";
+  avTab = profile?.avatar?.v === 2 ? "visual" : "classe";
+  avTier = tierFor(curLevel());
   document.querySelectorAll("[data-avtab]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.avtab === avTab));
   $("avEditor").hidden = false;
   renderAvatarEditor();
 }
-function optGrid(field, entries, labelOf = (k, v) => v[0]) {
-  return '<div class="avgrid">' + entries.map(([k, v]) => {
-    const lock = lockOf(field, k);
-    const preview = avatarSvg({ ...avDraft, [field]: k }, { size: 64 });
-    return '<button type="button" class="avopt" data-avfield="' + field + '" data-avval="' + esc(k) + '" aria-pressed="' + (avDraft[field] === k) + '"' + (lock ? ' data-locked="' + esc(lock) + '"' : "") + ">" +
-      preview + "<span>" + esc(labelOf(k, v)) + "</span>" + (lock ? '<em class="lock">🔒 ' + esc(lock) + "</em>" : "") + "</button>";
+const lockTag = (lock) => (lock ? '<em class="lock">🔒 ' + esc(lock) + "</em>" : "");
+function optBtn(field, val, pressed, inner, label, lock) {
+  return '<button type="button" class="avopt" data-avfield="' + field + '" data-avval="' + esc(val) + '" aria-pressed="' + pressed + '"' + (lock ? ' data-locked="' + esc(lock) + '"' : "") + ">" +
+    inner + "<span>" + esc(label) + "</span>" + lockTag(lock) + "</button>";
+}
+function swatches(field, list, label, colorOf) {
+  return '<span class="fl">' + label + '</span><div class="swatches">' + list.map((c, i) => {
+    const lock = lockOf(field, i);
+    return '<button type="button" class="sw" data-avfield="' + field + '" data-avval="' + i + '" data-num="1" aria-pressed="' + (avDraft[field] === i) + '"' + (lock ? ' data-locked="' + esc(lock) + '"' : "") +
+      ' style="background:' + colorOf(c, i) + '" aria-label="' + esc(c[0]) + (lock ? " (bloqueado)" : "") + '" title="' + esc(c[0] + (lock ? " · " + lock : "")) + '">' + (lock ? "🔒" : "") + "</button>";
   }).join("") + "</div>";
 }
-function swatches(field, colors, label) {
-  return '<span class="fl">' + label + '</span><div class="swatches">' + colors.map((c, i) =>
-    '<button type="button" class="sw" data-avfield="' + field + '" data-avval="' + i + '" data-num="1" aria-pressed="' + (avDraft[field] === i) + '" style="background:' + c + '" aria-label="' + label + " " + (i + 1) + '"></button>').join("") + "</div>";
+// cor de amostra do traje: a cor do próprio traje original da classe ou a nova matiz
+const OUTFIT_BASE = { arcanista: "#1F8E97", batedor: "#4E9A55", guardiao: "#E8862E", artifice: "#D9702B" };
+function outfitSwatch(o) {
+  if (o[1] === null) return OUTFIT_BASE[avDraft.cls];
+  const l = 0.42 * o[3], s = 0.62 * o[2];
+  return "hsl(" + o[1] + " " + Math.round(s * 100) + "% " + Math.round(l * 100) + "%)";
 }
 function renderAvatarEditor() {
-  $("avPreview").innerHTML = avatarSvg(avDraft, { size: 150, mood: avMood });
+  $("avPreview").innerHTML = avatarHtml(avDraft, { size: 170, tier: avTier, mood: avMood }) +
+    '<div class="tierpick" role="group" aria-label="Fases">' + TIERS.map(([n, lv], i) =>
+      '<button type="button" data-avtier="' + (i + 1) + '" aria-pressed="' + (avTier === i + 1) + '">' + avatarHtml(avDraft, { size: 46, tier: i + 1, view: "face" }) +
+      "<span>" + esc(CLASSES[avDraft.cls].tiers[i]) + "<small>nível " + lv + (i === 3 ? "+" : "") + "</small></span></button>").join("") + "</div>";
+  const lvl = curLevel(), cur = tierFor(lvl);
   let html = "";
-  if (avTab === "estilo") html = '<p class="muted">Escolha um ponto de partida. Depois você ajusta cada peça como quiser — todas as peças valem para qualquer estilo.</p><div class="avgrid presets">' +
-    Object.entries(PRESETS).map(([k, [name, p]]) => '<button type="button" class="avopt" data-avpreset="' + k + '">' + avatarSvg({ ...avDraft, ...p }, { size: 64 }) + "<span>" + name + "</span></button>").join("") + "</div>";
-  if (avTab === "rosto") html = swatches("skin", SKINS, "Tom de pele") + '<span class="fl">Olhos</span>' + optGrid("eyes", Object.entries(EYES)) + '<span class="fl">Cílios</span>' + optGrid("lashes", Object.entries(LASHES)) +
-    '<span class="fl">Boca</span><p class="hint">Esta é a boca do humor tranquilo. Nos dias movimentados e puxados, a expressão muda sozinha.</p>' + optGrid("mouth", Object.entries(MOUTHS)) + '<span class="fl">Batom</span>' + optGrid("lips", Object.entries(LIPS));
-  if (avTab === "barba") html = '<span class="fl">Barba e bigode</span><p class="hint">A barba usa a cor do cabelo.</p>' + optGrid("beard", Object.entries(BEARDS));
-  if (avTab === "cabelo") html = swatches("hairC", HAIR_COLORS, "Cor do cabelo") + '<span class="fl">Estilo</span>' + optGrid("hair", Object.entries(HAIRS));
-  if (avTab === "roupa") html = swatches("bodyC", CLOTH_COLORS, "Cor da roupa") + '<span class="fl">Roupa</span>' + optGrid("body", Object.entries(BODIES));
-  if (avTab === "itens") html = '<span class="fl">Óculos</span>' + optGrid("glasses", Object.entries(GLASSES)) + '<span class="fl">Brincos</span>' + optGrid("ears", Object.entries(EARRINGS)) + swatches("itemC", CLOTH_COLORS, "Cor do item") + '<span class="fl">Na cabeça</span>' + optGrid("item", Object.entries(ITEMS)) +
-    '<span class="fl">Equipamento</span>' + optGrid("gear", Object.entries(GEAR));
-  if (avTab === "fundo") html = swatches("bg", BG_COLORS, "Cor do fundo") + '<span class="fl">Moldura</span>' + optGrid("frame", Object.entries(FRAMES));
+  if (avTab === "classe") {
+    const left = classLock(), saved = profile?.avatar?.v === 2 ? profile.avatar.cls : null;
+    html = '<p class="muted">A classe muda o visual e dá um talento pequeno. ' + (left ? "Você poderá trocar de classe de novo em " + left + (left === 1 ? " dia." : " dias.") : "Dá para trocar uma vez a cada " + CLASS_DAYS + " dias.") + "</p>" +
+      '<div class="clsgrid">' + Object.entries(CLASSES).map(([k, c]) => {
+        const lock = left && saved && k !== saved ? "Troca em " + left + (left === 1 ? " dia" : " dias") : null;
+        return '<button type="button" class="clsopt" data-avfield="cls" data-avval="' + k + '" aria-pressed="' + (avDraft.cls === k) + '"' + (lock ? ' data-locked="' + esc(lock) + '"' : "") + ' style="--c:' + c.color + '">' +
+          avatarHtml({ ...avDraft, cls: k }, { size: 78, tier: cur }) +
+          '<span class="cn">' + esc(avDraft.sex === "f" ? c.f : c.n) + '</span><span class="cm">' + esc(c.fit) + '</span><span class="cp"><b>' + esc(c.perkName) + "</b> · " + esc(c.perk) + "</span>" + lockTag(lock) + "</button>";
+      }).join("") + "</div>";
+  }
+  if (avTab === "visual") {
+    html = '<span class="fl">Variante</span><div class="avgrid two">' +
+      [["f", "Feminina"], ["m", "Masculina"]].map(([k, n]) => optBtn("sex", k, avDraft.sex === k, avatarHtml({ ...avDraft, sex: k, hs: HAIRSTYLES[k][0][0] }, { size: 72, tier: avTier }), n)).join("") + "</div>" +
+      '<span class="fl">Penteado</span><div class="avgrid">' +
+      HAIRSTYLES[avDraft.sex].map(([k, n]) => optBtn("hs", k, avDraft.hs === k, avatarHtml({ ...avDraft, hs: k }, { size: 72, tier: avTier, view: "face" }), n)).join("") + "</div>";
+  }
+  if (avTab === "cores") {
+    html = swatches("skin", SKIN_TONES, "Tom de pele", (c) => c[2]) + swatches("hair", HAIR_TONES, "Cor do cabelo", (c) => c[1]) +
+      swatches("outfit", OUTFITS, "Cor do traje", (o) => outfitSwatch(o)) + '<p class="hint">O traje muda só a cor principal da roupa da classe.</p>';
+  }
+  if (avTab === "pet") {
+    html = '<p class="muted">O companheiro fica ao lado do personagem no painel. Na fase lendária, Arcanista, Batedor e Artífice já ganham um bichinho próprio.</p><div class="avgrid">' +
+      PETS.map(([k, n, about]) => optBtn("pet", k, avDraft.pet === k, k === "nenhum" ? '<span class="nopet">—</span>' : '<img class="petimg" src="' + PET_SRC(k) + '" alt="' + esc(about) + '">', n, lockOf("pet", k))).join("") + "</div>";
+  }
+  if (avTab === "fundo") {
+    html = '<span class="fl">Fundo</span><div class="swatches">' + BGS.map((b, i) =>
+      '<button type="button" class="sw' + (b === "guilda" ? " guildsw" : "") + '" data-avfield="bg" data-avval="' + i + '" data-num="1" aria-pressed="' + (avDraft.bg === i) + '"' + (b === "guilda" ? ' aria-label="Guilda das Horas" title="Guilda das Horas"' : ' style="background:' + b + '" aria-label="Fundo ' + i + '"') + "></button>").join("") + "</div>" +
+      '<span class="fl">Moldura</span><div class="avgrid">' + Object.entries(FRAMES).map(([k, [n]]) =>
+        optBtn("frame", k, avDraft.frame === k, avatarHtml({ ...avDraft, frame: k }, { size: 64, tier: avTier, view: "face" }), n, lockOf("frame", k))).join("") + "</div>";
+  }
   $("avOpts").innerHTML = html;
 }
 $("avEditBtn").addEventListener("click", openAvatarEditor);
@@ -1250,35 +1319,45 @@ document.querySelectorAll("[data-avtab]").forEach((b) => b.addEventListener("cli
 document.querySelectorAll("[data-avmood]").forEach((b) => b.addEventListener("click", () => {
   avMood = b.dataset.avmood;
   document.querySelectorAll("[data-avmood]").forEach((x) => x.setAttribute("aria-pressed", x === b));
-  $("avPreview").innerHTML = avatarSvg(avDraft, { size: 150, mood: avMood });
+  renderAvatarEditor();
 }));
+$("avPreview").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-avtier]"); if (!b) return;
+  avTier = +b.dataset.avtier; renderAvatarEditor();
+});
 $("avatar").addEventListener("click", () => { if (user) openAvatarEditor(); });
 $("avOpts").addEventListener("click", (e) => {
-  const pr = e.target.closest("[data-avpreset]");
-  if (pr) { avDraft = cleanAvatar({ ...avDraft, ...PRESETS[pr.dataset.avpreset][1] }); avTab = "rosto"; document.querySelectorAll("[data-avtab]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.avtab === "rosto")); renderAvatarEditor(); return; }
   const b = e.target.closest("[data-avfield]"); if (!b) return;
   if (b.dataset.locked) { toast("Para liberar: " + esc(b.dataset.locked)); return; }
-  avDraft[b.dataset.avfield] = b.dataset.num ? +b.dataset.avval : b.dataset.avval;
-  // ao trocar boca ou batom, a prévia volta para o humor tranquilo, que mostra a boca escolhida
-  if (b.dataset.avfield === "mouth" || b.dataset.avfield === "lips") {
-    avMood = "calmo";
-    document.querySelectorAll("[data-avmood]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.avmood === "calmo"));
-  }
+  const f = b.dataset.avfield;
+  avDraft[f] = b.dataset.num ? +b.dataset.avval : b.dataset.avval;
+  if (f === "sex" && !HAIRSTYLES[avDraft.sex].some(([k]) => k === avDraft.hs)) avDraft.hs = avDraft.hs === "cacheado" || avDraft.hs === "afro" ? avDraft.hs : HAIRSTYLES[avDraft.sex][0][0];
   const scroll = $("avOpts").scrollTop;
   renderAvatarEditor();
   $("avOpts").scrollTop = scroll;
 });
 $("avRandom").addEventListener("click", () => {
-  const pickFree = (field, obj) => { const ks = Object.keys(obj).filter((k) => !lockOf(field, k)); return ks[Math.floor(Math.random() * ks.length)]; };
   const r = (n) => Math.floor(Math.random() * n);
-  avDraft = { ...avDraft, skin: r(SKINS.length), hair: pickFree("hair", HAIRS), hairC: r(HAIR_COLORS.length), eyes: pickFree("eyes", EYES), mouth: pickFree("mouth", MOUTHS),
-    lashes: pickFree("lashes", LASHES), lips: Math.random() < .3 ? pickFree("lips", LIPS) : "nao", beard: Math.random() < .3 ? pickFree("beard", BEARDS) : "nenhuma", ears: Math.random() < .4 ? pickFree("ears", EARRINGS) : "nenhum",
-    body: pickFree("body", BODIES), bodyC: r(CLOTH_COLORS.length), glasses: pickFree("glasses", GLASSES), item: pickFree("item", ITEMS), itemC: r(CLOTH_COLORS.length), bg: r(BG_COLORS.length),
-    gear: Math.random() < .5 ? pickFree("gear", GEAR) : "nenhum" };
+  const free = (field, keys) => keys.filter((k) => !lockOf(field, k));
+  const sex = Math.random() < 0.5 ? "f" : "m";
+  const keepCls = classLock() && profile?.avatar?.v === 2;
+  avDraft = { ...avDraft, sex, hs: HAIRSTYLES[sex][r(4)][0], skin: r(SKIN_TONES.length), hair: r(HAIR_TONES.length),
+    cls: keepCls ? avDraft.cls : Object.keys(CLASSES)[r(4)],
+    outfit: (() => { const f = free("outfit", OUTFITS.map((_, i) => i)); return f[r(f.length)]; })() };
   renderAvatarEditor();
 });
 $("avSave").addEventListener("click", async () => {
+  const old = profile?.avatar?.v === 2 ? profile.avatar : null;
   const a = cleanAvatar(avDraft);
+  const hist = (old?.hist || []).slice(), td = today();
+  if (!old || !hist.length) { hist.length = 0; hist.push(td + ":" + a.cls); a.clsAt = 0; }
+  else if (old.cls !== a.cls) {
+    const firstDay = hist.every((e) => e.startsWith(td)) && !old.clsAt; // no dia da primeira escolha ainda dá para mudar à vontade
+    if (firstDay) { hist[hist.length - 1] = td + ":" + a.cls; a.clsAt = 0; }
+    else { hist.push(td + ":" + a.cls); a.clsAt = Date.now(); }
+  } else a.clsAt = old.clsAt || 0;
+  a.hist = hist.slice(-20);
+  a.since = a.hist[a.hist.length - 1].slice(0, 10);
   profile = { ...profile, avatar: a, useAvatar: true };
   $("avEditor").hidden = true; renderMyAvatar(); lastSync = ""; render();
   try { await updateDoc(profileRef(), { avatar: a, useAvatar: true }); toast("Avatar salvo"); } catch (e) { showDbError(e); }
@@ -1349,12 +1428,20 @@ const makeCode = () => Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Mat
 const memberRef = (code, id = uid) => doc(db, "groups", code, "members", id);
 const groupRef = (code) => doc(db, "groups", code);
 
+// Números que os membros do grupo veem no seu perfil (só contagens, nunca o nome das missões).
+function publicCounts(s) {
+  const td = today(), ws = weekStart();
+  let doneWk = 0;
+  for (let i = 0; i < 7; i++) doneWk += s.countDay[addDays(ws, i)] || 0;
+  const open = [...tasks.values()].filter((t) => !t.daily && !t.doneAt && !t.paused).length;
+  return { pend: dayMood().pending, open, done: s.count, doneWk, streak: s.streak };
+}
 function memberData() {
   const s = computeStats(), L = levelFor(s.total);
   const title = profile?.title && profile?.ach?.[profile.title] ? (BY_ID[profile.title]?.title || "") : "";
   return { name: profile?.name || user.displayName || "Sem nome", photo: profile?.photo || "", title, level: L.lvl, total: s.total,
     avatar: profile?.useAvatar !== false ? cleanAvatar(profile?.avatar || DEFAULT_AVATAR) : null,
-    week: s.week, weekXp: s.weekXp, prevWeek: s.prevWeek, prevWeekXp: s.prevWeekXp, updated: Date.now() };
+    week: s.week, weekXp: s.weekXp, prevWeek: s.prevWeek, prevWeekXp: s.prevWeekXp, updated: Date.now(), ...publicCounts(s) };
 }
 
 function groupError(msg) { const b = $("groupErr"); b.textContent = msg; b.hidden = !msg; }
@@ -1405,7 +1492,8 @@ function armGroup(code, key, value) {
 }
 
 $("groups").addEventListener("click", async (e) => {
-  const btn = e.target.closest("[data-gact]"); if (!btn) return;
+  const btn = e.target.closest("[data-gact]");
+  if (!btn) { const li = e.target.closest("[data-member]"); if (li) openMember(li.closest(".group").dataset.code, li.dataset.member); return; }
   const code = btn.closest(".group").dataset.code, g = groupData.get(code), ui = groupUi[code] || {};
   const act = btn.dataset.gact;
   if (act === "copy") {
@@ -1434,6 +1522,52 @@ $("groups").addEventListener("click", async (e) => {
     } catch (err) { groupError("Não consegui remover. Confira se as regras novas foram publicadas."); }
   }
 });
+$("groups").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const li = e.target.closest("[data-member]"); if (!li || e.target.closest("button")) return;
+  e.preventDefault(); openMember(li.closest(".group").dataset.code, li.dataset.member);
+});
+
+// Perfil de um membro do grupo: só leitura, com XP e contagem de missões.
+function agoText(t) {
+  if (!t) return "";
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 2) return "agora há pouco";
+  if (m < 60) return "há " + m + " min";
+  const h = Math.round(m / 60); if (h < 24) return "há " + h + (h === 1 ? " hora" : " horas");
+  const d = Math.round(h / 24); return "há " + d + (d === 1 ? " dia" : " dias");
+}
+let memberOpen = null;
+function openMember(code, id) { memberOpen = { code, id }; renderMember(); $("memberSheet").hidden = false; $("mbClose").focus(); }
+function closeMember() { $("memberSheet").hidden = true; memberOpen = null; }
+function renderMember() {
+  if (!memberOpen) return;
+  const g = groupData.get(memberOpen.code), m = g?.members?.find((x) => x.id === memberOpen.id);
+  if (!m) { closeMember(); return; }
+  const ws = weekStart(), lvl = m.level || 1;
+  const has = (k) => typeof m[k] === "number";
+  const stat = (label, val, sub) => '<div class="mstat"><span>' + label + "</span><b>" + val + "</b>" + (sub ? "<em>" + sub + "</em>" : "") + "</div>";
+  const av = m.avatar ? cleanAvatar(m.avatar) : null;
+  $("mbBody").innerHTML =
+    '<div class="mbtop">' + (av ? avatarHtml(av, { size: 132, level: lvl, title: m.name }) : m.photo ? '<img class="mbphoto" src="' + esc(m.photo) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph0 big">' + esc((m.name || "?").charAt(0).toUpperCase()) + "</span>") +
+    '<div class="mbinfo"><h2 id="mbTitle">' + esc(m.name || "Sem nome") + (m.id === uid ? " (você)" : "") + "</h2>" +
+    '<span class="lvlpill">NÍVEL <b>' + lvl + "</b></span>" +
+    (av ? '<span class="mbcls" style="--c:' + CLASSES[av.cls].color + '">' + esc(classLabel(av)) + " · " + esc(tierTitle(av, lvl)) + "</span>" : "") +
+    (m.title ? '<span class="muted small">Título “' + esc(m.title) + "”</span>" : "") + "</div></div>" +
+    '<div class="mstats">' +
+    stat("XP total", (m.total || 0).toLocaleString("pt-BR")) +
+    stat("XP da semana", m.week === ws ? m.weekXp : 0) +
+    stat("Pendentes hoje", has("pend") ? m.pend : "—") +
+    stat("Concluídas", has("done") ? m.done.toLocaleString("pt-BR") : "—", has("doneWk") ? m.doneWk + " nesta semana" : "") +
+    stat("Em aberto", has("open") ? m.open : "—", "sem contar as diárias") +
+    stat("Sequência", has("streak") ? m.streak + (m.streak === 1 ? " dia" : " dias") : "—") +
+    "</div>" +
+    '<p class="hint">' + (has("done") ? "Atualizado " + agoText(m.updated) + "." : "Esta pessoa ainda está numa versão antiga do app; os números de missões aparecem quando ela abrir o app de novo.") + " Os nomes das missões ficam sempre privados.</p>";
+}
+$("mbClose").addEventListener("click", closeMember);
+$("memberSheet").addEventListener("click", (e) => { if (e.target === $("memberSheet")) closeMember(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && memberOpen) closeMember(); });
+
 $("groups").addEventListener("submit", async (e) => {
   const f = e.target.closest("[data-gform='rename']"); if (!f) return;
   e.preventDefault();
@@ -1470,6 +1604,7 @@ function watchGroups(codes) {
       const cur = groupData.get(code) || {};
       groupData.set(code, { ...cur, members: snap.docs.map((d) => ({ id: d.id, ...d.data() })) });
       if (view === "grupos") renderGroups();
+      if (memberOpen?.code === code) renderMember();
     }, () => {}));
     groupSubs.set(code, () => stops.forEach((s) => s()));
   }
@@ -1480,7 +1615,7 @@ let syncT;
 function syncRanking(s, L) {
   const codes = profile?.groups || [];
   if (!loaded || !codes.length) return;
-  const sig = [L.lvl, s.total, s.week, s.weekXp, s.prevWeekXp, profile.name, profile.photo, profile.title || "", profile.useAvatar !== false ? JSON.stringify(profile.avatar || {}) : "", codes.join(",")].join("|");
+  const sig = [L.lvl, s.total, s.week, s.weekXp, s.prevWeekXp, JSON.stringify(publicCounts(s)), profile.name, profile.photo, profile.title || "", profile.useAvatar !== false ? JSON.stringify(profile.avatar || {}) : "", codes.join(",")].join("|");
   if (sig === lastSync) return;
   clearTimeout(syncT);
   syncT = setTimeout(async () => {

@@ -50,7 +50,13 @@ service cloud.firestore {
     }
 
     function validMember(d) {
-      return d.keys().hasOnly(['name', 'photo', 'title', 'avatar', 'level', 'total', 'week', 'weekXp', 'prevWeek', 'prevWeekXp', 'updated'])
+      return d.keys().hasOnly(['name', 'photo', 'title', 'avatar', 'level', 'total', 'week', 'weekXp', 'prevWeek', 'prevWeekXp', 'updated',
+                               'pend', 'open', 'done', 'doneWk', 'streak'])
+        && (!('pend' in d) || (d.pend is int && d.pend >= 0 && d.pend <= 100000))
+        && (!('open' in d) || (d.open is int && d.open >= 0 && d.open <= 100000))
+        && (!('done' in d) || (d.done is int && d.done >= 0 && d.done <= 10000000))
+        && (!('doneWk' in d) || (d.doneWk is int && d.doneWk >= 0 && d.doneWk <= 100000))
+        && (!('streak' in d) || (d.streak is int && d.streak >= 0 && d.streak <= 100000))
         && (!('avatar' in d) || d.avatar == null || (d.avatar is map && d.avatar.size() <= 24))
         && d.name is string && d.name.size() <= 80
         && (!('title' in d) || (d.title is string && d.title.size() <= 40))

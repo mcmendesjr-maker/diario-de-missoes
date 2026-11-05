@@ -32,8 +32,20 @@ export function iconSvg(key, cls = "ico") {
 export const TAG_COLORS = [
   ["#02A0A0", "Turquesa"], ["#FFBD65", "Laranja"], ["#FF8A7A", "Coral"], ["#B9A3FF", "Lilás"],
   ["#9BE36B", "Verde"], ["#6EC8FF", "Azul"], ["#FF8FC8", "Rosa"], ["#F5E06E", "Amarelo"],
+  ["#2FD0C8", "Água"], ["#E8955A", "Cobre"], ["#FF6B6B", "Vermelho"], ["#8C9EFF", "Anil"],
+  ["#C6E377", "Lima"], ["#D7B98E", "Areia"], ["#C9D9DA", "Névoa"], ["#F2A65A", "Abóbora"],
 ];
-export const tagColor = (i) => (TAG_COLORS[i] || TAG_COLORS[0])[0];
+// A cor da tag pode ser um número da paleta ou uma cor livre "#rrggbb".
+export const tagColor = (c) => (typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c) ? c : (TAG_COLORS[c] || TAG_COLORS[0])[0]);
+export const tagColorName = (c) => (typeof c === "string" ? "cor personalizada" : (TAG_COLORS[c] || TAG_COLORS[0])[1]);
+// Cores livres muito escuras ficam mais claras, porque o texto em cima delas é sempre escuro.
+export function readableTagColor(hex) {
+  const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255];
+  const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+  if (lum >= 0.45) return hex.toLowerCase();
+  const t = Math.min(0.85, (0.45 - lum) / (1 - lum) + 0.08);
+  return "#" + c.map((v) => Math.round(v + (255 - v) * t).toString(16).padStart(2, "0")).join("");
+}
 
 /* ---------- animações (respeitam "reduzir movimento") ---------- */
 const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;

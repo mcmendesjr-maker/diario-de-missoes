@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Missões">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 
@@ -255,16 +255,22 @@
       <button type="button" data-avmood="estressado" aria-pressed="false">Puxado</button>
     </div>
     <div class="tabs avtabs" role="group" aria-label="Partes do avatar">
-      <button type="button" data-avtab="estilo" aria-pressed="false">Estilo</button>
-      <button type="button" data-avtab="rosto" aria-pressed="true">Rosto</button>
-      <button type="button" data-avtab="cabelo" aria-pressed="false">Cabelo</button>
-      <button type="button" data-avtab="barba" aria-pressed="false">Barba</button>
-      <button type="button" data-avtab="roupa" aria-pressed="false">Roupa</button>
-      <button type="button" data-avtab="itens" aria-pressed="false">Itens</button>
+      <button type="button" data-avtab="classe" aria-pressed="true">Classe</button>
+      <button type="button" data-avtab="visual" aria-pressed="false">Visual</button>
+      <button type="button" data-avtab="cores" aria-pressed="false">Cores</button>
+      <button type="button" data-avtab="pet" aria-pressed="false">Companheiro</button>
       <button type="button" data-avtab="fundo" aria-pressed="false">Fundo</button>
     </div>
     <div class="avopts" id="avOpts"></div>
     <div class="acts"><button type="button" class="cancel" id="avRandom">Aleatório</button><button type="button" class="save" id="avSave">Salvar avatar</button></div>
+  </div>
+</div>
+
+<!-- Perfil de membro do grupo -->
+<div class="overlay" id="memberSheet" hidden>
+  <div class="sheet mbsheet" role="dialog" aria-modal="true" aria-labelledby="mbTitle">
+    <div class="avhead"><span class="muted small">Perfil no grupo</span><button type="button" class="leave" id="mbClose">Fechar</button></div>
+    <div id="mbBody"></div>
   </div>
 </div>
 
@@ -286,6 +292,6 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script type="module" src="app.js?v=10"></script>
+<script type="module" src="app.js?v=11"></script>
 </body>
 </html>
