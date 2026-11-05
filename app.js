@@ -3,8 +3,10 @@ import {
   db, login, logout, watchUser,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
-} from "./firebase.js?v=5";
-import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=5";
+} from "./firebase.js?v=8";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=8";
+import { ICONS, iconSvg, TAG_COLORS, tagColor, burst, confetti, countTo } from "./look.js?v=8";
+import { avatarSvg, cleanAvatar, DEFAULT_AVATAR, SKINS, HAIR_COLORS, CLOTH_COLORS, BG_COLORS, HAIRS, EYES, MOUTHS, LASHES, LIPS, BEARDS, BODIES, GLASSES, EARRINGS, ITEMS, FRAMES, MOODS, PRESETS } from "./avatar.js?v=8";
 
 /* =========================================================
    Regras de jogo
@@ -33,11 +35,14 @@ let groupSubs = new Map();    // código -> cancelar inscrição
 let groupData = new Map();    // código -> { name, owner, banned, members }
 
 let view = "missoes", tab = "hoje", filter = "todas", rankBy = "week";
-const form = { cat: "pessoal", diff: 1, rep: "once", days: [1, 2, 3, 4, 5] };
+const form = { cat: "pessoal", diff: 1, rep: "once", days: [1, 2, 3, 4, 5], tags: [], icon: "" };
 let editing = null;           // rascunho da missão aberta
 let lastLevel = null, lastSync = "";
 let histQuery = "", histLimit = 14;
-let selDay = null;            // dia escolhido na faixa da Agenda (null = hoje)
+let selDay = null;
+let tagFilter = null;          // id da tag usada como filtro
+let justDone = null;           // missão recém-concluída (para a animação)
+let newTagFor = null;          // onde o campo "nova tag" está aberto: "add" ou "edit"            // dia escolhido na faixa da Agenda (null = hoje)
 let groupUi = {};             // estado de botões dos grupos (confirmações, renomear)
 
 const $ = (id) => document.getElementById(id);
@@ -259,6 +264,56 @@ function history() {
 }
 
 /* =========================================================
+   Tags
+   ========================================================= */
+const tagsList = () => profile?.tags || [];
+const tagById = (id) => tagsList().find((g) => g.id === id);
+const taskTags = (t) => (t.tags || []).map(tagById).filter(Boolean);
+function taskColor(t) {
+  const g = taskTags(t)[0];
+  return g ? tagColor(g.c) : (t.cat === "profissional" ? "#2FD0C8" : "#FFBD65");
+}
+function tagChip(g, extra = "") {
+  return '<span class="tchip" style="--c:' + tagColor(g.c) + '"' + extra + "><i></i>" + esc(g.n) + "</span>";
+}
+function tagPickHtml(selected, scope) {
+  const list = tagsList();
+  return '<span class="fl">Tags</span><div class="chips tags">' +
+    list.map((g) => '<button type="button" class="tpick" data-tpick="' + esc(g.id) + '" data-scope="' + scope + '" aria-pressed="' + selected.includes(g.id) + '" style="--c:' + tagColor(g.c) + '"><i></i>' + esc(g.n) + "</button>").join("") +
+    (newTagFor === scope
+      ? '<span class="newtag"><input type="text" id="newTag-' + scope + '" maxlength="24" placeholder="Nome da tag" aria-label="Nome da nova tag"><button type="button" data-tcreate="' + scope + '">Criar</button></span>'
+      : (list.length < 30 ? '<button type="button" class="tadd" data-topen="' + scope + '">+ Nova tag</button>' : "")) +
+    "</div>" + (selected.length >= 5 ? '<span class="hint">Máximo de 5 tags por missão.</span>' : "");
+}
+function iconPickHtml(current, scope) {
+  return '<span class="fl">Ícone</span><div class="icons">' +
+    '<button type="button" data-ipick="" data-scope="' + scope + '" aria-pressed="' + !current + '" aria-label="Sem ícone" class="none">—</button>' +
+    Object.entries(ICONS).map(([k, [name]]) => '<button type="button" data-ipick="' + k + '" data-scope="' + scope + '" aria-pressed="' + (current === k) + '" aria-label="' + esc(name) + '" title="' + esc(name) + '">' + iconSvg(k) + "</button>").join("") +
+    "</div>";
+}
+async function createTag(name) {
+  name = name.trim().slice(0, 24); if (!name) return null;
+  if (tagsList().length >= 30) { toast("Você pode ter até 30 tags"); return null; }
+  const exists = tagsList().find((g) => g.n.toLowerCase() === name.toLowerCase());
+  if (exists) return exists.id;
+  const g = { id: newId(), n: name, c: tagsList().length % TAG_COLORS.length };
+  profile = { ...profile, tags: [...tagsList(), g] };
+  try { await updateDoc(profileRef(), { tags: profile.tags }); } catch (e) { showDbError(e); }
+  return g.id;
+}
+function renderAddPickers() {
+  $("newTags").innerHTML = tagPickHtml(form.tags, "add");
+  $("newIcons").innerHTML = iconPickHtml(form.icon, "add");
+}
+function renderTagFilter() {
+  const box = $("tagFilter"), list = tagsList();
+  box.hidden = !list.length;
+  if (!list.length) { tagFilter = null; return; }
+  if (tagFilter && !tagById(tagFilter)) tagFilter = null;
+  box.innerHTML = list.map((g) => '<button type="button" data-tfilter="' + esc(g.id) + '" aria-pressed="' + (tagFilter === g.id) + '" style="--c:' + tagColor(g.c) + '"><i></i>' + esc(g.n) + "</button>").join("");
+}
+
+/* =========================================================
    Desenho da tela
    ========================================================= */
 const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
@@ -270,7 +325,9 @@ function render() {
   if (view === "missoes") renderTasks();
   if (view === "progresso") renderProgress(s, L);
   if (view === "grupos") renderGroups();
-  if (view === "conta") { renderTitles(); syncNotifyRow(); }
+  if (view === "conta") { renderTitles(); syncNotifyRow(); renderTagList(); }
+  applyCards();
+  renderMyAvatar();
   syncRanking(s, L);
   checkAchievements(s);
   checkShield(s);
@@ -287,13 +344,14 @@ function renderStatus(s, L) {
   const usedThisWeek = [...s.shields].some((d) => d >= weekStart());
   $("sShield").textContent = usedThisWeek ? "escudo usado" : "escudo pronto";
   $("sShield").classList.toggle("used", usedThisWeek);
-  $("sTotal").textContent = s.total.toLocaleString("pt-BR");
+  countTo($("sTotal"), s.total);
   $("sAch").textContent = ALL.filter((a) => profile?.ach?.[a.id]).length + "/" + TOTAL;
   const title = profile?.title && profile?.ach?.[profile.title] ? BY_ID[profile.title]?.title : null;
   const done = s.count ? s.count + (s.count === 1 ? " missão concluída" : " missões concluídas") : "Conclua missões para ganhar XP e subir de nível.";
   $("sub").textContent = title ? "“" + title + "” · " + done : done;
   if (loaded && lastLevel !== null && L.lvl > lastLevel) {
-    const b = $("lvlBanner"); b.className = "levelup"; b.hidden = false;
+    const b = $("lvlBanner"); b.className = "levelup pop"; b.hidden = false;
+    confetti();
     b.innerHTML = "<span>Subiu para o nível " + L.lvl + ": " + esc(rankOf(L.lvl)) + "!</span><button type=\"button\" id=\"lvlOk\">Fechar</button>";
     $("lvlOk").onclick = () => { b.hidden = true; };
   }
@@ -311,7 +369,9 @@ function linkify(text) {
 }
 
 function renderTasks() {
-  const B = buckets(), f = (x) => filter === "todas" || x.cat === filter;
+  const B = buckets(), f = (x) => (filter === "todas" || x.cat === filter) && (!tagFilter || (x.tags || []).includes(tagFilter));
+  renderTagFilter();
+  if (!document.activeElement || !document.activeElement.closest("#moreNew")) renderAddPickers();
   $("nHoje").textContent = B.hoje.filter((x) => !isDoneToday(x)).length || "";
   $("nProx").textContent = B.prox.length || "";
   $("nFeitas").textContent = "";
@@ -391,14 +451,16 @@ function taskRow(t, opts = {}) {
       else if (diffMin <= -90) state = '<span class="state late">Passou da hora</span>';
     }
   }
-  const meta = state + '<span class="tag ' + esc(t.cat) + '">' + (t.cat === "profissional" ? "Profissional" : "Pessoal") + "</span><span>" + DIFF[t.diff] + "</span>" + when +
+  const tchips = taskTags(t).map((g) => tagChip(g)).join("");
+  const meta = state + tchips + '<span class="tag ' + esc(t.cat) + '">' + (t.cat === "profissional" ? "Profissional" : "Pessoal") + "</span><span>" + DIFF[t.diff] + "</span>" + when +
     (subsArr.length ? '<span class="pill">' + subsDone.filter(Boolean).length + "/" + subsArr.length + "</span>" : "") +
     (t.note ? '<span class="pill" title="Tem nota">nota</span>' : "") +
     (t.time && !opts.tl ? '<span class="pill mono">' + esc(t.time) + "</span>" : "");
   const dataDate = opts.date ? date : (opts.day && opts.day !== td ? opts.day : null);
-  return '<li class="task cat-' + esc(t.cat) + (done ? " done" : "") + (t.pin ? " pinned" : "") + (t.paused ? " is-paused" : "") + '" data-id="' + esc(t.id) + '"' + (dataDate ? ' data-date="' + dataDate + '"' : "") + ">" +
+  return '<li class="task cat-' + esc(t.cat) + (done ? " done" : "") + (t.pin ? " pinned" : "") + (t.paused ? " is-paused" : "") + (justDone === t.id && done ? " justdone" : "") + '" style="--tc:' + taskColor(t) + '" data-id="' + esc(t.id) + '"' + (dataDate ? ' data-date="' + dataDate + '"' : "") + ">" +
     (opts.tl ? '<span class="tl">' + esc(t.time) + "</span>" : "") +
     '<button type="button" class="check" data-act="toggle" aria-label="' + (done ? "Desmarcar" : "Concluir") + " " + esc(t.title) + '"' + ((t.paused && !opts.date) || !canToggle ? " disabled" : "") + ">" + CHECK + "</button>" +
+    (t.icon && ICONS[t.icon] ? '<span class="ticon">' + iconSvg(t.icon) + "</span>" : "") +
     '<div class="body"><div class="ttl edit" data-act="open" role="button" tabindex="0">' + esc(t.title) + '</div><div class="meta">' + meta + "</div>" + subsHtml + "</div>" +
     '<span class="xp">+' + (XP[t.diff] || 10) + "</span>" +
     (opts.date ? "" : '<button type="button" class="pinbtn" data-act="pin" aria-pressed="' + !!t.pin + '" aria-label="' + (t.pin ? "Desafixar" : "Fixar no topo") + '">' + STAR + "</button>") +
@@ -453,6 +515,8 @@ function editRow(t) {
     '<label class="fl" for="editNote">Nota</label>' +
     '<textarea id="editNote" maxlength="1000" rows="2" placeholder="Detalhes, links, observações">' + esc(e.note) + "</textarea>" +
     (e.note && /https?:\/\//.test(e.note) ? '<p class="notepreview">' + linkify(e.note) + "</p>" : "") +
+    tagPickHtml(e.tags, "edit") +
+    iconPickHtml(e.icon, "edit") +
     '<span class="fl">Subtarefas</span>' +
     '<ul class="esubs">' + e.subs.map((s, i) => '<li><input type="checkbox" data-esubd="' + i + '"' + (s.d ? " checked" : "") + ' aria-label="Concluída"><input type="text" data-esubt="' + i + '" value="' + esc(s.t) + '" maxlength="100" aria-label="Subtarefa ' + (i + 1) + '"><button type="button" class="x" data-esubx="' + i + '" aria-label="Remover subtarefa">✕</button></li>').join("") + "</ul>" +
     (e.subs.length < 20 ? '<div class="addrow small"><input type="text" id="newSub" maxlength="100" placeholder="Nova subtarefa"><button type="button" class="secondary" data-act="addsub">Adicionar</button></div>' : "") +
@@ -477,6 +541,7 @@ function renderProgress(s, L) {
   const ach = profile?.ach || {}, ctx = s.ctx;
   $("achCount").textContent = ALL.filter((a) => ach[a.id]).length + "/" + TOTAL;
   $("achBonus").textContent = "+" + s.bonus.total + " XP de bônus";
+  renderTagStats();
   const when = (id) => ach[id] ? "conquistada em " + nice(dstr(new Date(ach[id]))).replace(/^\S+, /, "") : "";
   const fmt = (n) => n.toLocaleString("pt-BR");
 
@@ -529,7 +594,7 @@ function renderGroups() {
     const champ = [...g.members].sort((a, b) => lastPts(b) - lastPts(a))[0];
     const rows = members.map((m, i) =>
       '<li class="rk' + (m.id === uid ? " me" : "") + '"><span class="pos">' + (i + 1) + "</span>" +
-      (m.photo ? '<img src="' + esc(m.photo) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph0">' + esc((m.name || "?").charAt(0).toUpperCase()) + "</span>") +
+      (m.avatar ? '<span class="rkav">' + avatarSvg(m.avatar, { size: 34 }) + "</span>" : m.photo ? '<img src="' + esc(m.photo) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph0">' + esc((m.name || "?").charAt(0).toUpperCase()) + "</span>") +
       '<span class="nm">' + esc(m.name || "Sem nome") + (m.id === uid ? " (você)" : "") + "<small>Nível " + (m.level || 1) + " · " + esc(m.title || rankOf(m.level || 1)) + "</small></span>" +
       '<span class="pts">' + pts(m) + " XP</span>" +
       (isOwner && m.id !== uid ? '<button type="button" class="leave" data-gact="kick" data-uid="' + esc(m.id) + '">' + (ui.kick === m.id ? "Remover?" : "✕") + "</button>" : "") +
@@ -682,6 +747,8 @@ $("addForm").addEventListener("submit", (e) => {
   const title = $("newTitle").value.trim(); if (!title) { $("newTitle").focus(); return; }
   const tm = $("newTime").value;
   const data = { title, cat: form.cat, diff: form.diff, daily: form.rep !== "once", due: null, created: Date.now(), time: /^\d{2}:\d{2}$/.test(tm) ? tm : null };
+  if (form.tags.length) data.tags = form.tags.slice(0, 5);
+  if (form.icon) data.icon = form.icon;
   if (form.rep === "once") { data.due = $("newDue").value || null; data.doneAt = null; }
   else {
     data.done = []; data.repeat = form.rep;
@@ -690,6 +757,7 @@ $("addForm").addEventListener("submit", (e) => {
   }
   put(newId(), data);
   $("newTitle").value = ""; $("newDue").value = ""; $("newTime").value = "";
+  form.tags = []; form.icon = ""; renderAddPickers();
   if (form.rep === "once" && data.due && data.due > today()) toast("Missão agendada para " + esc(nice(data.due)));
   else if (form.rep !== "once" && !isScheduled(data, today())) toast("Repetição criada. Próxima: " + esc(nice(nextScheduled(data))));
 });
@@ -713,6 +781,50 @@ group("data-view", (b) => {
 $("histSearch").addEventListener("input", (e) => { histQuery = e.target.value; histLimit = 14; renderTasks(); });
 
 /* =========================================================
+   Seletores de tag e ícone (formulário e editor)
+   ========================================================= */
+function pickerTarget(scope) { return scope === "edit" ? editing : form; }
+function refreshPickers(scope) { if (scope === "edit") rerenderEditor(); else renderAddPickers(); }
+async function handlePicker(e) {
+  let b;
+  if ((b = e.target.closest("[data-tpick]"))) {
+    const tgt = pickerTarget(b.dataset.scope); if (!tgt) return true;
+    const id = b.dataset.tpick;
+    if (tgt.tags.includes(id)) tgt.tags = tgt.tags.filter((x) => x !== id);
+    else if (tgt.tags.length < 5) tgt.tags = [...tgt.tags, id];
+    refreshPickers(b.dataset.scope); return true;
+  }
+  if ((b = e.target.closest("[data-ipick]"))) {
+    const tgt = pickerTarget(b.dataset.scope); if (!tgt) return true;
+    tgt.icon = b.dataset.ipick; refreshPickers(b.dataset.scope); return true;
+  }
+  if ((b = e.target.closest("[data-topen]"))) {
+    newTagFor = b.dataset.topen; refreshPickers(newTagFor);
+    $("newTag-" + newTagFor)?.focus(); return true;
+  }
+  if ((b = e.target.closest("[data-tcreate]"))) { await submitNewTag(b.dataset.tcreate); return true; }
+  return false;
+}
+async function submitNewTag(scope) {
+  const inp = $("newTag-" + scope); if (!inp) return;
+  const id = await createTag(inp.value);
+  newTagFor = null;
+  const tgt = pickerTarget(scope);
+  if (id && tgt && !tgt.tags.includes(id) && tgt.tags.length < 5) tgt.tags = [...tgt.tags, id];
+  refreshPickers(scope);
+}
+$("moreNew").addEventListener("click", (e) => { handlePicker(e); });
+$("moreNew").addEventListener("keydown", (e) => {
+  if (e.target.id === "newTag-add" && e.key === "Enter") { e.preventDefault(); submitNewTag("add"); }
+  if (e.target.id === "newTag-add" && e.key === "Escape") { newTagFor = null; renderAddPickers(); }
+});
+$("tagFilter").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tfilter]"); if (!b) return;
+  tagFilter = tagFilter === b.dataset.tfilter ? null : b.dataset.tfilter;
+  editing = null; renderTasks();
+});
+
+/* =========================================================
    Ações: lista de missões
    ========================================================= */
 function openEditor(id) {
@@ -720,7 +832,8 @@ function openEditor(id) {
   editing = {
     id, title: t.title, cat: t.cat, diff: t.diff, due: t.due || "",
     rep: repeatOf(t) === "once" ? "daily" : repeatOf(t), days: t.days ? [...t.days] : [1, 2, 3, 4, 5], monthDay: t.monthDay || 1,
-    note: t.note || "", time: t.time || "", subs: (t.subs || []).map((s, i) => ({ t: s.t, d: subsDoneFor(t)[i] })),
+    note: t.note || "", time: t.time || "", tags: [...(t.tags || [])].filter((id) => tagById(id)), icon: t.icon || "",
+    subs: (t.subs || []).map((s, i) => ({ t: s.t, d: subsDoneFor(t)[i] })),
   };
   // abre na aba em que a missão aparece (ou em Hoje, se ela não aparece em nenhuma)
   const B = buckets();
@@ -753,11 +866,16 @@ function toggleDone(id, date, btn) {
     n.doneAt = gained ? d : null; n.doneHour = gained && d === today() ? hour : null;
   }
   put(id, n);
-  if (gained) { celebrate(rect, xp); toast('Missão concluída <span class="mono">+' + xp + " XP</span>"); }
+  if (gained) {
+    justDone = id; setTimeout(() => { if (justDone === id) justDone = null; }, 900);
+    if (rect && rect.width) burst(rect.left + rect.width / 2, rect.top + rect.height / 2, { colors: [taskColor(t), "#FFBD65", "#2FD0C8"] });
+    renderTasks();
+    celebrate(rect, xp); toast('Missão concluída <span class="mono">+' + xp + " XP</span>"); }
   else toast('Desmarcada <span class="mono">−' + xp + " XP</span>", { label: "Desfazer", run: () => put(id, t) });
 }
 
-$("list").addEventListener("click", (e) => {
+$("list").addEventListener("click", async (e) => {
+  if (editing && await handlePicker(e)) return;
   // controles dentro do editor
   const pick = (attr) => e.target.closest("[" + attr + "]");
   let b;
@@ -774,7 +892,7 @@ $("list").addEventListener("click", (e) => {
   const act = btn.dataset.act;
 
   if (act === "open") { openEditor(id); return; }
-  if (act === "ecancel") { editing = null; renderTasks(); return; }
+  if (act === "ecancel") { editing = null; newTagFor = null; renderTasks(); return; }
   if (act === "esave") { saveEdit(); return; }
   if (act === "addsub") { addSubFromInput(); return; }
   if (act === "cleartime") { editing.time = ""; rerenderEditor(); return; }
@@ -815,6 +933,7 @@ $("list").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); saveEdit(); }
     if (e.key === "Escape") { editing = null; renderTasks(); }
   } else if (e.target.id === "newSub" && e.key === "Enter") { e.preventDefault(); addSubFromInput(); }
+  else if (e.target.id === "newTag-edit" && e.key === "Enter") { e.preventDefault(); submitNewTag("edit"); }
   else if (e.target.dataset?.act === "open" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.target.click(); }
 });
 $("list").addEventListener("input", (e) => {
@@ -844,7 +963,8 @@ function saveEdit() {
   const id = editing.id, t = tasks.get(id);
   if (!t) { editing = null; renderTasks(); return; }
   const title = editing.title.trim(); if (!title) { $("editTitle").focus(); return; }
-  const n = { ...t, title, cat: editing.cat, diff: editing.diff, updated: Date.now(), note: editing.note.trim().slice(0, 1000), time: /^\d{2}:\d{2}$/.test(editing.time) ? editing.time : null };
+  const n = { ...t, title, cat: editing.cat, diff: editing.diff, updated: Date.now(), note: editing.note.trim().slice(0, 1000), time: /^\d{2}:\d{2}$/.test(editing.time) ? editing.time : null,
+    tags: editing.tags.slice(0, 5), icon: editing.icon || "" };
   const subs = editing.subs.filter((s) => s.t.trim()).map((s) => ({ t: s.t.trim().slice(0, 100), d: !!s.d }));
   n.subs = subs; n.subsDay = today();
   if (t.daily) {
@@ -919,6 +1039,241 @@ async function checkShield(s) {
   finally { shieldBusy = false; }
 }
 
+function renderTagStats() {
+  const sums = new Map(), counts = new Map();
+  for (const h of history()) {
+    const xp = XP[h.t.diff] || 10;
+    const ids = (h.t.tags || []).filter((id) => tagById(id));
+    for (const id of (ids.length ? ids : ["__none"])) { sums.set(id, (sums.get(id) || 0) + xp); counts.set(id, (counts.get(id) || 0) + 1); }
+  }
+  const rows = [...sums.entries()].sort((a, b) => b[1] - a[1]);
+  const box = $("tagStats");
+  if (!rows.length) { box.innerHTML = '<p class="muted">Conclua missões com tags para ver quanto XP cada uma rendeu.</p>'; return; }
+  if (!tagsList().length) { box.innerHTML = '<p class="muted">Crie tags na aba Conta ou no formulário de nova missão para ver o XP separado por tag.</p>'; return; }
+  const max = rows[0][1];
+  box.innerHTML = rows.map(([id, xp]) => {
+    const g = tagById(id), name = g ? g.n : "Sem tag", c = g ? tagColor(g.c) : "var(--surface-3)";
+    return '<div class="tsrow"><span class="tsname"><i style="background:' + c + '"></i>' + esc(name) + '</span><div class="tsbar"><i style="width:' + (xp / max * 100) + "%;background:" + c + '"></i></div><span class="tsval mono">' + xp.toLocaleString("pt-BR") + " XP · " + counts.get(id) + "</span></div>";
+  }).join("");
+}
+
+/* =========================================================
+   Aparência e tags (aba Conta)
+   ========================================================= */
+const THEME_KEY = "missoes.theme";
+function applyTheme(choice) {
+  const real = choice === "system" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : choice;
+  document.documentElement.dataset.theme = real;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", real === "light" ? "#F2F6F6" : "#071317");
+  document.querySelectorAll("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.themeSet === choice));
+}
+let themeChoice = "dark";
+try { themeChoice = localStorage.getItem(THEME_KEY) || "dark"; } catch (e) { }
+applyTheme(themeChoice);
+matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => { if (themeChoice === "system") applyTheme("system"); });
+document.querySelectorAll("[data-theme-set]").forEach((b) => b.addEventListener("click", () => {
+  themeChoice = b.dataset.themeSet;
+  try { localStorage.setItem(THEME_KEY, themeChoice); } catch (e) { }
+  applyTheme(themeChoice);
+}));
+
+function applyCards() {
+  const style = profile?.cardStyle === "full" ? "full" : "stripe";
+  document.body.classList.toggle("cards-full", style === "full");
+  document.querySelectorAll("[data-cards]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.cards === style));
+}
+document.querySelectorAll("[data-cards]").forEach((b) => b.addEventListener("click", async () => {
+  profile = { ...profile, cardStyle: b.dataset.cards }; applyCards();
+  try { await updateDoc(profileRef(), { cardStyle: b.dataset.cards }); } catch (e) { showDbError(e); }
+}));
+
+let tagArmed = null;
+function renderTagList() {
+  const list = tagsList();
+  $("tagCount").textContent = list.length + "/30";
+  if (document.activeElement && document.activeElement.closest("#tagList")) return; // não atrapalha a digitação
+  $("tagList").innerHTML = list.length ? list.map((g) => {
+    const used = [...tasks.values()].filter((t) => (t.tags || []).includes(g.id)).length;
+    return '<li data-tid="' + esc(g.id) + '"><button type="button" class="swatch" data-tcolor style="background:' + tagColor(g.c) + '" aria-label="Trocar cor (' + esc(TAG_COLORS[g.c]?.[1] || "") + ')"></button>' +
+      '<input type="text" value="' + esc(g.n) + '" maxlength="24" data-tname aria-label="Nome da tag">' +
+      '<span class="hint">' + used + (used === 1 ? " missão" : " missões") + "</span>" +
+      '<button type="button" class="leave" data-tdel>' + (tagArmed === g.id ? "Excluir?" : "✕") + "</button></li>";
+  }).join("") : '<li class="hint">Nenhuma tag criada ainda.</li>';
+}
+async function saveTags(list) {
+  profile = { ...profile, tags: list };
+  try { await updateDoc(profileRef(), { tags: list }); } catch (e) { showDbError(e); }
+}
+$("tagList").addEventListener("click", async (e) => {
+  const li = e.target.closest("[data-tid]"); if (!li) return;
+  const id = li.dataset.tid, list = tagsList().map((g) => ({ ...g }));
+  const g = list.find((x) => x.id === id); if (!g) return;
+  if (e.target.closest("[data-tcolor]")) { g.c = (g.c + 1) % TAG_COLORS.length; await saveTags(list); renderTagList(); render(); return; }
+  if (e.target.closest("[data-tdel]")) {
+    if (tagArmed !== id) { tagArmed = id; renderTagList(); setTimeout(() => { if (tagArmed === id) { tagArmed = null; renderTagList(); } }, 3000); return; }
+    tagArmed = null;
+    await saveTags(list.filter((x) => x.id !== id));
+    // tira a tag das missões que a usavam
+    for (const [tid, t] of tasks) if ((t.tags || []).includes(id)) put(tid, { ...t, tags: t.tags.filter((x) => x !== id) });
+    toast("Tag excluída"); renderTagList();
+  }
+});
+$("tagList").addEventListener("change", async (e) => {
+  if (!e.target.matches("[data-tname]")) return;
+  const id = e.target.closest("[data-tid]").dataset.tid, name = e.target.value.trim().slice(0, 24);
+  if (!name) { renderTagList(); return; }
+  await saveTags(tagsList().map((g) => g.id === id ? { ...g, n: name } : g));
+  toast("Tag renomeada"); render();
+});
+$("tagForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = await createTag($("tagName").value);
+  if (id) { $("tagName").value = ""; toast("Tag criada"); renderTagList(); }
+});
+
+/* =========================================================
+   Avatar
+   ========================================================= */
+// O que cada peça especial pede para ser liberada.
+const anyTier = (n) => Object.keys(profile?.ach || {}).some((id) => id.endsWith("-" + n));
+const hasAch = (id) => !!profile?.ach?.[id];
+const curLevel = () => levelFor(computeStats().total).lvl;
+const UNLOCKS = {
+  item: {
+    fone: [() => hasAch("missoes-2"), "Missionário Prata"],
+    gato: [() => hasAch("sequencia-2"), "Maratonista Prata (30 dias seguidos)"],
+    moto: [() => hasAch("dificeis-2"), "Desafiante Prata"],
+    espacial: [() => curLevel() >= 10, "Nível 10"],
+    coroa: [() => curLevel() >= 20, "Nível 20"],
+    aureola: [() => SECRETS.some((x) => hasAch(x.id)), "Qualquer conquista secreta"],
+  },
+  glasses: {
+    sol: [() => curLevel() >= 5, "Nível 5"],
+    aviador: [() => hasAch("madrugador-3"), "Madrugador Ouro"],
+  },
+  body: {
+    jaqueta: [() => curLevel() >= 3, "Nível 3"],
+    terno: [() => hasAch("profissional-2"), "Carreira Prata"],
+  },
+  mouth: { lingua: [() => hasAch("sextou"), "Uma conquista secreta"] },
+  frame: {
+    bronze: [() => anyTier(1), "Qualquer medalha de bronze"],
+    prata: [() => anyTier(2), "Qualquer medalha de prata"],
+    ouro: [() => anyTier(3), "Qualquer medalha de ouro"],
+    diamante: [() => anyTier(4), "Qualquer medalha de diamante"],
+  },
+};
+const lockOf = (field, key) => { const u = UNLOCKS[field]?.[key]; return u && !u[0]() ? u[1] : null; };
+
+// Humor do dia: pela quantidade de missões que ainda faltam hoje.
+function dayMood() {
+  if (!loaded) return { key: "calmo", pending: 0 };
+  const td = today();
+  const pending = dayItems(td).filter((t) => !isDoneOn(t, td) && !t.paused).length;
+  const key = pending <= 2 ? "calmo" : pending <= 5 ? "focado" : "estressado";
+  return { key, pending };
+}
+const usingAvatar = () => profile?.useAvatar !== false;
+function myAvatarHtml(size, mood = null) {
+  if (usingAvatar()) return avatarSvg(profile?.avatar || DEFAULT_AVATAR, { size, mood });
+  if (user?.photoURL) return '<img src="' + esc(user.photoURL) + '" alt="" referrerpolicy="no-referrer" width="' + size + '" height="' + size + '">';
+  return avatarSvg(DEFAULT_AVATAR, { size, mood });
+}
+let lastMoodSig = "";
+function renderMyAvatar() {
+  if (!user) return;
+  const m = dayMood(), md = MOODS[m.key];
+  const sig = m.key + "|" + usingAvatar() + "|" + JSON.stringify(profile?.avatar || {}) + "|" + (user.photoURL || "");
+  const box = $("avatar");
+  if (sig !== lastMoodSig) {
+    const changed = lastMoodSig && lastMoodSig.split("|")[0] !== m.key;
+    lastMoodSig = sig;
+    box.innerHTML = myAvatarHtml(120, m.key);
+    box.style.setProperty("--ring", md.ring);
+    if (changed) { box.classList.remove("bounce"); void box.offsetWidth; box.classList.add("bounce"); }
+  }
+  box.hidden = false;
+  $("moodChip").innerHTML = '<i style="background:' + md.ring + '"></i>' + md.name + " · " + (m.pending === 0 ? "nada pendente" : m.pending + (m.pending === 1 ? " pendente" : " pendentes"));
+  $("avatarBig").innerHTML = myAvatarHtml(64);
+  $("useAvatar").checked = usingAvatar();
+}
+
+let avDraft = null, avTab = "rosto", avMood = "calmo";
+function openAvatarEditor() {
+  avDraft = cleanAvatar(profile?.avatar || DEFAULT_AVATAR);
+  avTab = profile?.avatar ? "rosto" : "estilo";
+  document.querySelectorAll("[data-avtab]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.avtab === avTab));
+  $("avEditor").hidden = false;
+  renderAvatarEditor();
+}
+function optGrid(field, entries, labelOf = (k, v) => v[0]) {
+  return '<div class="avgrid">' + entries.map(([k, v]) => {
+    const lock = lockOf(field, k);
+    const preview = avatarSvg({ ...avDraft, [field]: k }, { size: 64 });
+    return '<button type="button" class="avopt" data-avfield="' + field + '" data-avval="' + esc(k) + '" aria-pressed="' + (avDraft[field] === k) + '"' + (lock ? ' data-locked="' + esc(lock) + '"' : "") + ">" +
+      preview + "<span>" + esc(labelOf(k, v)) + "</span>" + (lock ? '<em class="lock">🔒 ' + esc(lock) + "</em>" : "") + "</button>";
+  }).join("") + "</div>";
+}
+function swatches(field, colors, label) {
+  return '<span class="fl">' + label + '</span><div class="swatches">' + colors.map((c, i) =>
+    '<button type="button" class="sw" data-avfield="' + field + '" data-avval="' + i + '" data-num="1" aria-pressed="' + (avDraft[field] === i) + '" style="background:' + c + '" aria-label="' + label + " " + (i + 1) + '"></button>').join("") + "</div>";
+}
+function renderAvatarEditor() {
+  $("avPreview").innerHTML = avatarSvg(avDraft, { size: 150, mood: avMood });
+  let html = "";
+  if (avTab === "estilo") html = '<p class="muted">Escolha um ponto de partida. Depois você ajusta cada peça como quiser — todas as peças valem para qualquer estilo.</p><div class="avgrid presets">' +
+    Object.entries(PRESETS).map(([k, [name, p]]) => '<button type="button" class="avopt" data-avpreset="' + k + '">' + avatarSvg({ ...avDraft, ...p }, { size: 64 }) + "<span>" + name + "</span></button>").join("") + "</div>";
+  if (avTab === "rosto") html = swatches("skin", SKINS, "Tom de pele") + '<span class="fl">Olhos</span>' + optGrid("eyes", Object.entries(EYES)) + '<span class="fl">Cílios</span>' + optGrid("lashes", Object.entries(LASHES)) +
+    '<span class="fl">Boca</span><p class="hint">No painel, a boca e as sobrancelhas mudam com o humor do dia.</p>' + optGrid("mouth", Object.entries(MOUTHS)) + '<span class="fl">Batom</span>' + optGrid("lips", Object.entries(LIPS));
+  if (avTab === "barba") html = '<span class="fl">Barba e bigode</span><p class="hint">A barba usa a cor do cabelo.</p>' + optGrid("beard", Object.entries(BEARDS));
+  if (avTab === "cabelo") html = swatches("hairC", HAIR_COLORS, "Cor do cabelo") + '<span class="fl">Estilo</span>' + optGrid("hair", Object.entries(HAIRS));
+  if (avTab === "roupa") html = swatches("bodyC", CLOTH_COLORS, "Cor da roupa") + '<span class="fl">Roupa</span>' + optGrid("body", Object.entries(BODIES));
+  if (avTab === "itens") html = '<span class="fl">Óculos</span>' + optGrid("glasses", Object.entries(GLASSES)) + '<span class="fl">Brincos</span>' + optGrid("ears", Object.entries(EARRINGS)) + swatches("itemC", CLOTH_COLORS, "Cor do item") + '<span class="fl">Item</span>' + optGrid("item", Object.entries(ITEMS));
+  if (avTab === "fundo") html = swatches("bg", BG_COLORS, "Cor do fundo") + '<span class="fl">Moldura</span>' + optGrid("frame", Object.entries(FRAMES));
+  $("avOpts").innerHTML = html;
+}
+$("avEditBtn").addEventListener("click", openAvatarEditor);
+$("avClose").addEventListener("click", () => { $("avEditor").hidden = true; });
+document.querySelectorAll("[data-avtab]").forEach((b) => b.addEventListener("click", () => {
+  avTab = b.dataset.avtab;
+  document.querySelectorAll("[data-avtab]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  renderAvatarEditor();
+}));
+document.querySelectorAll("[data-avmood]").forEach((b) => b.addEventListener("click", () => {
+  avMood = b.dataset.avmood;
+  document.querySelectorAll("[data-avmood]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  $("avPreview").innerHTML = avatarSvg(avDraft, { size: 150, mood: avMood });
+}));
+$("avatar").addEventListener("click", () => { if (user) openAvatarEditor(); });
+$("avOpts").addEventListener("click", (e) => {
+  const pr = e.target.closest("[data-avpreset]");
+  if (pr) { avDraft = cleanAvatar({ ...avDraft, ...PRESETS[pr.dataset.avpreset][1] }); avTab = "rosto"; document.querySelectorAll("[data-avtab]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.avtab === "rosto")); renderAvatarEditor(); return; }
+  const b = e.target.closest("[data-avfield]"); if (!b) return;
+  if (b.dataset.locked) { toast("Para liberar: " + esc(b.dataset.locked)); return; }
+  avDraft[b.dataset.avfield] = b.dataset.num ? +b.dataset.avval : b.dataset.avval;
+  const scroll = $("avOpts").scrollTop;
+  renderAvatarEditor();
+  $("avOpts").scrollTop = scroll;
+});
+$("avRandom").addEventListener("click", () => {
+  const pickFree = (field, obj) => { const ks = Object.keys(obj).filter((k) => !lockOf(field, k)); return ks[Math.floor(Math.random() * ks.length)]; };
+  const r = (n) => Math.floor(Math.random() * n);
+  avDraft = { ...avDraft, skin: r(SKINS.length), hair: pickFree("hair", HAIRS), hairC: r(HAIR_COLORS.length), eyes: pickFree("eyes", EYES), mouth: pickFree("mouth", MOUTHS),
+    lashes: pickFree("lashes", LASHES), lips: Math.random() < .3 ? pickFree("lips", LIPS) : "nao", beard: Math.random() < .3 ? pickFree("beard", BEARDS) : "nenhuma", ears: Math.random() < .4 ? pickFree("ears", EARRINGS) : "nenhum",
+    body: pickFree("body", BODIES), bodyC: r(CLOTH_COLORS.length), glasses: pickFree("glasses", GLASSES), item: pickFree("item", ITEMS), itemC: r(CLOTH_COLORS.length), bg: r(BG_COLORS.length) };
+  renderAvatarEditor();
+});
+$("avSave").addEventListener("click", async () => {
+  const a = cleanAvatar(avDraft);
+  profile = { ...profile, avatar: a, useAvatar: true };
+  $("avEditor").hidden = true; renderMyAvatar(); lastSync = ""; render();
+  try { await updateDoc(profileRef(), { avatar: a, useAvatar: true }); toast("Avatar salvo"); } catch (e) { showDbError(e); }
+});
+$("useAvatar").addEventListener("change", async (e) => {
+  profile = { ...profile, useAvatar: e.target.checked }; renderMyAvatar(); lastSync = ""; render();
+  try { await updateDoc(profileRef(), { useAvatar: e.target.checked }); } catch (err) { showDbError(err); }
+});
+
 /* =========================================================
    Conquistas: desbloqueio e títulos
    ========================================================= */
@@ -945,6 +1300,7 @@ async function checkAchievements(s) {
 function announce(ids) {
   const xp = ids.reduce((a, id) => a + (BY_ID[id]?.xp || 0), 0);
   const b = $("achBanner"); b.hidden = false;
+  b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop");
   if (ids.length === 1) {
     const a = BY_ID[ids[0]];
     b.innerHTML = "<span><small>Conquista desbloqueada</small>" + esc(a.name) + ' <span class="mono">+' + xp + " XP</span>" + (a.title ? "<small>Novo título: “" + esc(a.title) + "”</small>" : "") + "</span>";
@@ -983,6 +1339,7 @@ function memberData() {
   const s = computeStats(), L = levelFor(s.total);
   const title = profile?.title && profile?.ach?.[profile.title] ? (BY_ID[profile.title]?.title || "") : "";
   return { name: profile?.name || user.displayName || "Sem nome", photo: profile?.photo || "", title, level: L.lvl, total: s.total,
+    avatar: profile?.useAvatar !== false ? cleanAvatar(profile?.avatar || DEFAULT_AVATAR) : null,
     week: s.week, weekXp: s.weekXp, prevWeek: s.prevWeek, prevWeekXp: s.prevWeekXp, updated: Date.now() };
 }
 
@@ -1109,7 +1466,7 @@ let syncT;
 function syncRanking(s, L) {
   const codes = profile?.groups || [];
   if (!loaded || !codes.length) return;
-  const sig = [L.lvl, s.total, s.week, s.weekXp, s.prevWeekXp, profile.name, profile.photo, profile.title || "", codes.join(",")].join("|");
+  const sig = [L.lvl, s.total, s.week, s.weekXp, s.prevWeekXp, profile.name, profile.photo, profile.title || "", profile.useAvatar !== false ? JSON.stringify(profile.avatar || {}) : "", codes.join(",")].join("|");
   if (sig === lastSync) return;
   clearTimeout(syncT);
   syncT = setTimeout(async () => {
@@ -1202,7 +1559,7 @@ watchUser(async (u) => {
   $("loginScreen").hidden = true; $("appScreen").hidden = false; $("dbErr").hidden = true;
   $("userName").textContent = u.displayName || "";
   $("userEmail").textContent = u.email || "";
-  for (const id of ["avatar", "avatarBig"]) { const im = $(id); if (u.photoURL) { im.src = u.photoURL; im.hidden = false; } else im.hidden = true; }
+  renderMyAvatar();
   syncAddForm();
   render();
 

@@ -6,7 +6,8 @@
 <title>Diário de Missões</title>
 <meta name="description" content="Organizador de rotina gamificado com XP, níveis, grupos e login Google.">
 <meta name="theme-color" content="#071317">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
+<script>try{var t=localStorage.getItem("missoes.theme")||"dark";if(t==="system")t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme="dark";}</script>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -15,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Missões">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 
@@ -40,14 +41,18 @@
 <div class="wrap" id="appScreen" hidden>
 
   <section class="hero" aria-label="Seu progresso">
-    <div class="hero-top">
-      <span class="lvlpill">NÍVEL <b id="lvl">1</b></span>
-      <span class="rank" id="rank">Iniciante</span>
-      <img class="avatar" id="avatar" alt="" referrerpolicy="no-referrer" hidden>
-    </div>
-    <div class="bignum">
-      <svg class="star" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 3l5.6 6.1 8.2-.9.9 8.2L45 22l-6.1 5.6.9 8.2-8.2.9L26 43l-5.6-6.1-8.2.9-.9-8.2L5 24l6.1-5.6-.9-8.2 8.2-.9z"/><path d="M24 14l2.9 6.2 6.8.7-5.1 4.6 1.4 6.7L24 28.8l-6 3.4 1.4-6.7-5.1-4.6 6.8-.7z" fill="#071317"/></svg>
-      <span id="sTotal">0</span><small>XP</small>
+    <div class="hero-main">
+      <button type="button" class="heroav" id="avatar" aria-label="Editar avatar"></button>
+      <div class="hero-info">
+        <div class="hero-top">
+          <span class="lvlpill">NÍVEL <b id="lvl">1</b></span>
+          <span class="rank" id="rank">Iniciante</span>
+        </div>
+        <div class="bignum">
+          <span id="sTotal">0</span><small>XP</small>
+        </div>
+        <span class="mood" id="moodChip"></span>
+      </div>
     </div>
     <p class="sub" id="sub">Conclua missões para ganhar XP e subir de nível.</p>
     <div class="levelbar">
@@ -114,6 +119,11 @@
       <div class="opts" id="daysRow" hidden>
         <div class="days" id="newDays" role="group" aria-label="Dias da semana"></div>
       </div>
+      <details class="more" id="moreNew">
+        <summary>Tags e ícone</summary>
+        <div class="tagpick" id="newTags"></div>
+        <div class="iconpick" id="newIcons"></div>
+      </details>
       <div class="opts" id="monthRow" hidden>
         <label class="chk">Todo dia <input type="number" id="newMonthDay" min="1" max="31" value="10" aria-label="Dia do mês"> de cada mês</label>
       </div>
@@ -131,6 +141,7 @@
         <button type="button" data-filter="profissional" aria-pressed="false">Profissional</button>
       </div>
     </div>
+    <div class="tagfilter" id="tagFilter" role="group" aria-label="Filtrar por tag"></div>
     <div class="daystrip" id="dayStrip" role="group" aria-label="Escolher dia"></div>
     <input type="search" class="search" id="histSearch" placeholder="Buscar nas concluídas" aria-label="Buscar nas concluídas" hidden>
     <ul class="list" id="list"></ul>
@@ -142,6 +153,10 @@
     <div class="panel">
       <div class="ph"><h2>Últimos 7 dias</h2><span class="label mono" id="weekSum">0 XP</span></div>
       <div class="week" id="week"></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><h2>XP por tag</h2><span class="label">todas as missões concluídas</span></div>
+      <div class="tagstats" id="tagStats"></div>
     </div>
     <div class="panel">
       <div class="ph"><h2>Conquistas</h2><span class="label mono" id="achCount">0/83</span></div>
@@ -180,7 +195,9 @@
   <!-- Conta -->
   <section class="view" id="view-conta" hidden>
     <div class="panel">
-      <div class="me"><img id="avatarBig" alt="" referrerpolicy="no-referrer" hidden><div><b id="userName"></b><span id="userEmail"></span></div></div>
+      <div class="me"><span class="avbig" id="avatarBig"></span><div><b id="userName"></b><span id="userEmail"></span>
+        <div class="avbtns"><button type="button" class="secondary" id="avEditBtn">Editar avatar</button>
+        <label class="chk"><input type="checkbox" id="useAvatar"> Usar avatar (desmarque para usar a foto do Google)</label></div></div></div>
       <div class="titlebox">
         <label for="titleSel"><b>Seu título</b></label>
         <select id="titleSel"><option value="">Sem título</option></select>
@@ -195,11 +212,60 @@
       </div>
     </div>
     <div class="panel">
+      <h2>Aparência</h2>
+      <div class="setrow"><span>Tema</span>
+        <div class="seg" role="group" aria-label="Tema">
+          <button type="button" data-theme-set="dark" aria-pressed="true">Escuro</button>
+          <button type="button" data-theme-set="light" aria-pressed="false">Claro</button>
+          <button type="button" data-theme-set="system" aria-pressed="false">Automático</button>
+        </div>
+      </div>
+      <div class="setrow"><span>Cartões das missões</span>
+        <div class="seg" role="group" aria-label="Estilo dos cartões">
+          <button type="button" data-cards="stripe" aria-pressed="true">Com faixa</button>
+          <button type="button" data-cards="full" aria-pressed="false">Coloridos</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><h2>Suas tags</h2><span class="label mono" id="tagCount">0/30</span></div>
+      <p class="muted">Crie tags como "Cliente X", "Saúde" ou "Estudos". Toque na bolinha para trocar a cor.</p>
+      <ul class="taglist" id="tagList"></ul>
+      <form class="addrow small" id="tagForm" autocomplete="off">
+        <input type="text" id="tagName" maxlength="24" placeholder="Nova tag" aria-label="Nome da nova tag">
+        <button type="submit" class="secondary">Criar</button>
+      </form>
+    </div>
+    <div class="panel">
       <h2>Privacidade</h2>
       <p class="muted">Suas missões ficam no Firebase, serviço do Google, e só a sua conta consegue lê-las. Nos grupos, os outros membros veem apenas seu nome, sua foto, seu nível e seu XP. O administrador do app tem acesso técnico ao banco de dados. Apagar seus dados nesta tela remove tudo o que foi salvo pelo app.</p>
     </div>
-    <p class="note">Diário de Missões · versão 5</p>
+    <p class="note">Diário de Missões · versão 8</p>
   </section>
+</div>
+
+<!-- Editor de avatar -->
+<div class="overlay" id="avEditor" hidden>
+  <div class="sheet avsheet" role="dialog" aria-modal="true" aria-labelledby="avTitle">
+    <div class="avhead"><h2 id="avTitle">Seu avatar</h2><button type="button" class="leave" id="avClose">Fechar</button></div>
+    <div class="avpreview" id="avPreview"></div>
+    <div class="moodpick" role="group" aria-label="Ver humor">
+      <button type="button" data-avmood="calmo" aria-pressed="true">Tranquilo</button>
+      <button type="button" data-avmood="focado" aria-pressed="false">Movimentado</button>
+      <button type="button" data-avmood="estressado" aria-pressed="false">Puxado</button>
+    </div>
+    <div class="tabs avtabs" role="group" aria-label="Partes do avatar">
+      <button type="button" data-avtab="estilo" aria-pressed="false">Estilo</button>
+      <button type="button" data-avtab="rosto" aria-pressed="true">Rosto</button>
+      <button type="button" data-avtab="cabelo" aria-pressed="false">Cabelo</button>
+      <button type="button" data-avtab="barba" aria-pressed="false">Barba</button>
+      <button type="button" data-avtab="roupa" aria-pressed="false">Roupa</button>
+      <button type="button" data-avtab="itens" aria-pressed="false">Itens</button>
+      <button type="button" data-avtab="fundo" aria-pressed="false">Fundo</button>
+    </div>
+    <div class="avopts" id="avOpts"></div>
+    <div class="acts"><button type="button" class="cancel" id="avRandom">Aleatório</button><button type="button" class="save" id="avSave">Salvar avatar</button></div>
+  </div>
 </div>
 
 <!-- Boas-vindas -->
@@ -220,6 +286,6 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script type="module" src="app.js?v=5"></script>
+<script type="module" src="app.js?v=8"></script>
 </body>
 </html>

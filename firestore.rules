@@ -7,7 +7,7 @@ service cloud.firestore {
     function isDate(v) { return v is string && v.size() == 10; }
 
     function validProfile(d) {
-      return d.keys().hasOnly(['name', 'photo', 'createdAt', 'onboarded', 'groups', 'ach', 'title', 'flags', 'shields'])
+      return d.keys().hasOnly(['name', 'photo', 'createdAt', 'onboarded', 'groups', 'ach', 'title', 'flags', 'shields', 'tags', 'cardStyle', 'avatar', 'useAvatar'])
         && d.name is string && d.name.size() <= 80
         && d.photo is string && d.photo.size() <= 600
         && d.createdAt is number
@@ -16,12 +16,16 @@ service cloud.firestore {
         && (!('ach' in d) || (d.ach is map && d.ach.size() <= 200))
         && (!('title' in d) || (d.title is string && d.title.size() <= 40))
         && (!('flags' in d) || (d.flags is map && d.flags.size() <= 10))
-        && (!('shields' in d) || (d.shields is list && d.shields.size() <= 400));
+        && (!('shields' in d) || (d.shields is list && d.shields.size() <= 400))
+        && (!('tags' in d) || (d.tags is list && d.tags.size() <= 30))
+        && (!('cardStyle' in d) || d.cardStyle in ['stripe', 'full'])
+        && (!('avatar' in d) || (d.avatar is map && d.avatar.size() <= 20))
+        && (!('useAvatar' in d) || d.useAvatar is bool);
     }
 
     function validTask(d) {
       return d.keys().hasOnly(['title', 'cat', 'diff', 'daily', 'due', 'done', 'doneAt', 'doneHour', 'hours', 'created', 'updated',
-                               'repeat', 'days', 'monthDay', 'pin', 'paused', 'note', 'subs', 'subsDay', 'time'])
+                               'repeat', 'days', 'monthDay', 'pin', 'paused', 'note', 'subs', 'subsDay', 'time', 'tags', 'icon'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 140
         && d.cat in ['pessoal', 'profissional']
         && d.diff in [1, 2, 3]
@@ -40,11 +44,14 @@ service cloud.firestore {
         && (!('subs' in d) || (d.subs is list && d.subs.size() <= 20))
         && (!('subsDay' in d) || d.subsDay == null || isDate(d.subsDay))
         && (!('time' in d) || d.time == null || (d.time is string && d.time.size() == 5))
+        && (!('tags' in d) || (d.tags is list && d.tags.size() <= 5))
+        && (!('icon' in d) || (d.icon is string && d.icon.size() <= 20))
         && d.created is number;
     }
 
     function validMember(d) {
-      return d.keys().hasOnly(['name', 'photo', 'title', 'level', 'total', 'week', 'weekXp', 'prevWeek', 'prevWeekXp', 'updated'])
+      return d.keys().hasOnly(['name', 'photo', 'title', 'avatar', 'level', 'total', 'week', 'weekXp', 'prevWeek', 'prevWeekXp', 'updated'])
+        && (!('avatar' in d) || d.avatar == null || (d.avatar is map && d.avatar.size() <= 20))
         && d.name is string && d.name.size() <= 80
         && (!('title' in d) || (d.title is string && d.title.size() <= 40))
         && d.photo is string && d.photo.size() <= 600
