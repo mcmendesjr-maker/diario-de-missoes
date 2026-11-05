@@ -10,7 +10,7 @@ Acesse: https://mcmendesjr-maker.github.io/diario-de-missoes/
 - `app.js`: telas, regras de XP, grupos e ranking
 - `achievements.js`: catálogo das 83 conquistas
 - `look.js`: ícones, cores das tags e animações
-- `avatar.js`: peças e desenho do avatar
+- `avatar.js`: peças do avatar em pixel art (grade 32x32)
 - `firebase.js`: conexão com login e banco de dados
 - `sw.js`: modo offline (a cada atualização, aumente `VERSION` aqui e o `?v=` no index.html e no app.js)
 - `manifest.json` e `icons/`: instalação no celular

@@ -1,134 +1,166 @@
-// Avatar montável: personagem original em traço grosso e cores chapadas.
-// Tudo é desenhado em SVG (viewBox 200x200), então não depende de imagens externas.
+// Avatar em pixel art: personagem chibi de corpo inteiro, numa grade de 32x32.
+// Cada peça pinta pixels na grade; no fim o contorno escuro é gerado sozinho.
+// O resultado vira um SVG de retângulos (nítido em qualquer tamanho).
 
-const INK = "#141414";
-const SW = 6; // espessura do contorno
-const LIP = "#C2334D";
+const N = 32;
+const INK = "#1E1620";
 
-export const SKINS = ["#F8D9C8", "#F1C4A4", "#E0A47E", "#C27F57", "#8D5A3B", "#5E3A26"];
-export const HAIR_COLORS = ["#141414", "#5A3824", "#A0642C", "#E3B04B", "#D9573E", "#7C5CD6", "#2FA6A0", "#E8E8E8"];
-export const CLOTH_COLORS = ["#6A2FC0", "#02A0A0", "#FFBD65", "#FF7A6B", "#3D7BE0", "#4FA35A", "#F2F2F2", "#2A2A2A", "#F28DB2", "#8B5A2B"];
-export const BG_COLORS = ["#CDEFEA", "#FFE3BD", "#FFD3CC", "#E2DAFF", "#DDF5C9", "#D4ECFF", "#F2F2F2", "#173239"];
+export const SKINS = ["#FBDCC6", "#F2C29C", "#DFA275", "#B97A50", "#8A5636", "#5C3824"];
+export const HAIR_COLORS = ["#2B2430", "#5A3A26", "#A0622D", "#E9A74A", "#D4532F", "#7058C8", "#2B7E86", "#E6E1DA"];
+export const CLOTH_COLORS = ["#6A3FC2", "#1F8E97", "#F0A649", "#E8604E", "#3E70D1", "#4E9A55", "#EEE9E0", "#2E2B36", "#EC8FB4", "#8C5634"];
+export const BG_COLORS = ["#F4A9A8", "#E7BA80", "#A3B4A6", "#A9C6E6", "#C7B6E6", "#B7D99F", "#EFEAE2", "#173239"];
 
-const st = (w = SW) => `stroke="${INK}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
-const stroke = st();
-const curls = (pts, c) => `<g fill="${c}" ${stroke}>` + pts.map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}"/>`).join("") + "</g>";
+/* ---------- cores ---------- */
+function rgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function hex([r, g, b]) { return "#" + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join(""); }
+const shade = (h, f) => hex(rgb(h).map((v) => v * f));
+const mix = (a, b, t) => { const A = rgb(a), B = rgb(b); return hex(A.map((v, i) => v + (B[i] - v) * t)); };
 
-/* ---------- base ---------- */
-const HEAD = (skin) =>
-  `<path d="M150 98a10 11 0 1 1 -2 22" fill="${skin}" ${stroke}/>` +
-  `<path d="M62 74Q62 40 100 40Q146 40 146 80L146 108Q146 140 108 140Q86 140 74 128Q62 116 62 96Z" fill="${skin}" ${stroke}/>`;
-const NECK = (skin) => `<path d="M90 134L114 134L114 156L90 156Z" fill="${skin}"/><path d="M90 134L90 154M114 134L114 154" ${stroke} fill="none"/>`;
-const CHEEKS = `<ellipse cx="76" cy="106" rx="7" ry="4" fill="#FF8F8F" opacity=".45"/><ellipse cx="124" cy="106" rx="7" ry="4" fill="#FF8F8F" opacity=".45"/>`;
+/* ---------- pintura ---------- */
+function canvas() {
+  const g = new Array(N * N).fill(null);
+  const set = (x, y, c) => { if (c && x >= 0 && y >= 0 && x < N && y < N) g[y * N + x] = c; };
+  const rect = (x, y, w, h, c) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) set(x + i, y + j, c); };
+  const row = (y, x0, x1, c) => { for (let x = x0; x <= x1; x++) set(x, y, c); };
+  const get = (x, y) => (x >= 0 && y >= 0 && x < N && y < N ? g[y * N + x] : null);
+  const pts = (list, c) => list.forEach(([x, y]) => set(x, y, c));
+  return { g, set, rect, row, get, pts };
+}
+
+/* ---------- corpo base ---------- */
+function drawHead(p, skin) {
+  const sh = shade(skin, 0.88);
+  p.row(6, 11, 20, skin); p.row(7, 10, 21, skin);
+  p.rect(9, 8, 14, 8, skin);
+  p.row(16, 10, 21, skin);
+  p.row(16, 10, 11, sh); p.row(16, 20, 21, sh); p.set(9, 15, sh); p.set(22, 15, sh);
+  p.rect(8, 11, 1, 3, skin); p.rect(23, 11, 1, 3, skin); // orelhas
+  p.set(8, 12, sh); p.set(23, 12, sh);
+}
+const BLUSH = (p) => { p.set(11, 14, "#F28C8C"); p.set(20, 14, "#F28C8C"); };
 
 /* ---------- rosto ---------- */
+const EYE_L = 12, EYE_R = 18, EYE_Y = 11;
 export const EYES = {
-  pontos: ["Pontos", `<circle cx="84" cy="92" r="5" fill="${INK}"/><circle cx="110" cy="92" r="5" fill="${INK}"/>`],
-  brilho: ["Com brilho", `<circle cx="84" cy="92" r="6.5" fill="${INK}"/><circle cx="110" cy="92" r="6.5" fill="${INK}"/><circle cx="86" cy="90" r="2.2" fill="#fff"/><circle cx="112" cy="90" r="2.2" fill="#fff"/>`],
-  felizes: ["Felizes", `<path d="M77 94q7-8 14 0M103 94q7-8 14 0" fill="none" ${st(5)}/>`],
-  grandes: ["Grandes", `<ellipse cx="84" cy="91" rx="8" ry="10" fill="#fff" ${st(4)}/><ellipse cx="110" cy="91" rx="8" ry="10" fill="#fff" ${st(4)}/><circle cx="86" cy="93" r="4" fill="${INK}"/><circle cx="112" cy="93" r="4" fill="${INK}"/>`],
-  piscando: ["Piscando", `<circle cx="84" cy="92" r="5" fill="${INK}"/><path d="M103 93q7-6 14 0" fill="none" ${st(5)}/>`],
-  serios: ["Sérios", `<path d="M78 92h12M104 92h12" ${st(5)}/>`],
-};
-export const MOUTHS = {
-  nenhuma: ["Sem boca", () => ""],
-  sorriso: ["Sorriso", (c) => `<path d="M88 112q9 8 18 0" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/>`],
-  aberta: ["Animada", (c) => `<path d="M87 110h20q-2 14-10 14t-10-14z" fill="#B23A3A" stroke="${c}" stroke-width="4" stroke-linejoin="round"/>`],
-  neutra: ["Neutra", (c) => `<path d="M90 114h14" stroke="${c}" stroke-width="5" stroke-linecap="round"/>`],
-  lingua: ["Língua", (c) => `<path d="M88 111q9 7 18 0" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/><path d="M95 115q0 9 5 9t5-9" fill="#E86A7A" ${st(3.5)}/>`],
+  pontos: ["Pontos", (p) => { p.rect(EYE_L, EYE_Y, 1, 2, INK); p.rect(EYE_R + 1, EYE_Y, 1, 2, INK); }],
+  brilho: ["Com brilho", (p) => { p.rect(EYE_L, EYE_Y, 2, 2, INK); p.rect(EYE_R, EYE_Y, 2, 2, INK); p.set(EYE_L, EYE_Y, "#FFFFFF"); p.set(EYE_R, EYE_Y, "#FFFFFF"); }],
+  felizes: ["Felizes", (p) => { p.pts([[EYE_L - 1, EYE_Y + 1], [EYE_L, EYE_Y], [EYE_L + 1, EYE_Y + 1], [EYE_R, EYE_Y + 1], [EYE_R + 1, EYE_Y], [EYE_R + 2, EYE_Y + 1]], INK); }],
+  grandes: ["Grandes", (p) => { p.rect(EYE_L - 1, EYE_Y - 1, 3, 3, "#FFFFFF"); p.rect(EYE_R, EYE_Y - 1, 3, 3, "#FFFFFF"); p.rect(EYE_L, EYE_Y, 2, 2, INK); p.rect(EYE_R + 1, EYE_Y, 2, 2, INK); }],
+  piscando: ["Piscando", (p) => { p.rect(EYE_L, EYE_Y, 1, 2, INK); p.row(EYE_Y + 1, EYE_R, EYE_R + 2, INK); }],
+  serios: ["Sérios", (p) => { p.row(EYE_Y + 1, EYE_L - 1, EYE_L + 1, INK); p.row(EYE_Y + 1, EYE_R, EYE_R + 2, INK); }],
 };
 export const LASHES = {
-  nao: ["Sem cílios", ""],
-  sim: ["Cílios", `<path d="M77 87l-5-4M80 85l-2-5M117 87l5-4M114 85l2-5" ${st(3.5)}/>`],
+  nao: ["Sem cílios", () => {}],
+  sim: ["Cílios", (p) => { p.set(EYE_L - 1, EYE_Y - 1, INK); p.set(EYE_R + 2, EYE_Y - 1, INK); }],
+};
+export const MOUTHS = {
+  nenhuma: ["Sem boca", () => {}],
+  sorriso: ["Sorriso", (p, c) => { p.pts([[14, 14], [15, 15], [16, 15], [17, 14]], c); }],
+  aberta: ["Animada", (p, c) => { p.row(14, 14, 17, c); p.rect(15, 15, 2, 1, "#B43A3A"); p.set(14, 15, c); p.set(17, 15, c); }],
+  neutra: ["Neutra", (p, c) => { p.row(15, 15, 16, c); }],
+  lingua: ["Língua", (p, c) => { p.pts([[14, 14], [15, 15], [16, 15], [17, 14]], c); p.set(16, 16, "#EF7A8C"); }],
 };
 export const LIPS = {
   nao: ["Sem batom", null],
   vermelho: ["Batom vermelho", "#C2334D"],
-  rosa: ["Batom rosa", "#E06A9A"],
+  rosa: ["Batom rosa", "#DF6A98"],
   vinho: ["Batom vinho", "#7E1F3B"],
 };
 export const BEARDS = {
-  nenhuma: ["Sem barba", () => ""],
-  rala: ["Barba rala", (c) => `<path d="M64 104Q66 138 98 141Q128 140 144 112L146 104Q140 126 112 128Q96 132 82 126Q68 120 64 104Z" fill="${c}" opacity=".32"/><path d="M84 106Q91 102 97 105Q103 102 110 106" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" opacity=".45"/>`],
-  cheia: ["Barba cheia", (c) => `<path d="M63 98Q60 146 98 150Q138 150 146 104L146 98Q140 120 118 120Q108 126 97 126Q86 126 78 120Q66 116 63 98Z" fill="${c}" ${stroke}/><path d="M83 108Q91 101 97 106Q103 101 111 108Q104 113 97 110Q90 113 83 108Z" fill="${c}" ${st(3.5)}/>`],
-  cavanhaque: ["Cavanhaque", (c) => `<path d="M88 122Q97 146 106 122Q97 128 88 122Z" fill="${c}" ${st(4)}/><path d="M83 107Q91 101 97 106Q103 101 111 107Q104 112 97 109Q90 112 83 107Z" fill="${c}" ${st(3.5)}/>`],
-  bigode: ["Bigode", (c) => `<path d="M81 108Q90 99 97 105Q104 99 113 108Q105 113 97 109Q89 113 81 108Z" fill="${c}" ${st(4)}/>`],
+  nenhuma: ["Sem barba", () => {}],
+  rala: ["Barba rala", (p, hc, skin) => { const c = mix(skin, hc, 0.45); p.rect(9, 13, 2, 3, c); p.rect(21, 13, 2, 3, c); p.row(16, 11, 20, c); p.row(13, 14, 17, c); }],
+  cheia: ["Barba cheia", (p, hc) => { p.rect(9, 12, 2, 5, hc); p.rect(21, 12, 2, 5, hc); p.row(16, 10, 21, hc); p.row(17, 11, 20, hc); p.row(18, 13, 18, hc); p.rect(11, 15, 10, 1, hc); p.row(13, 13, 18, hc); p.row(14, 12, 13, hc); p.row(14, 18, 19, hc); }],
+  cavanhaque: ["Cavanhaque", (p, hc) => { p.row(13, 13, 18, hc); p.rect(14, 16, 4, 2, hc); }],
+  bigode: ["Bigode", (p, hc) => { p.row(13, 13, 18, hc); p.set(12, 14, hc); p.set(19, 14, hc); }],
 };
 
-/* ---------- cabelo: [nome, atrás da cabeça, por cima] ---------- */
+/* ---------- cabelo: [nome, atrás, por cima] ---------- */
+function cap(p, c, top = 4) {
+  const s = shade(c, 0.82);
+  p.row(top, 11, 20, c); p.row(top + 1, 10, 21, c); p.rect(9, top + 2, 14, 8 - top, c);
+  p.set(13, top + 1, mix(c, "#FFFFFF", 0.35)); p.set(14, top + 1, mix(c, "#FFFFFF", 0.35)); // brilho
+  return s;
+}
 export const HAIRS = {
-  curto: ["Curto", null, (c) => `<path d="M58 84Q52 34 102 32Q152 32 150 86Q140 62 112 60Q96 72 76 66Q64 72 58 84Z" fill="${c}" ${stroke}/>`],
-  degrade: ["Degradê", null, (c) => `<path d="M62 82Q60 42 100 38Q144 38 146 84Q140 66 120 58Q100 54 80 60Q66 66 62 82Z" fill="${c}" opacity=".45"/><path d="M70 58Q76 34 104 32Q134 32 140 58Q120 48 104 50Q86 50 70 58Z" fill="${c}" ${stroke}/>`],
-  moicano: ["Moicano", null, (c) => `<path d="M62 82Q60 44 100 40Q144 40 146 84Q132 62 100 58Q74 60 62 82Z" fill="${c}" opacity=".35"/><path d="M90 48L92 18L102 34L108 10L116 32L126 18L124 52Q106 42 90 48Z" fill="${c}" ${stroke}/>`],
-  topete: ["Topete", null, (c) => `<path d="M60 82Q54 46 80 36Q78 20 104 18Q132 16 136 34Q154 44 150 86Q140 64 114 62Q92 54 76 66Q66 72 60 82Z" fill="${c}" ${stroke}/>`],
-  cacheado: ["Cacheado", null, (c) => curls([[64, 74, 14], [66, 54, 15], [82, 40, 16], [102, 34, 17], [122, 38, 16], [140, 50, 15], [150, 70, 14], [150, 88, 11]], c) +
-    `<path d="M58 70Q66 50 100 48Q136 48 146 72L146 64Q130 40 100 40Q70 40 58 64Z" fill="${c}"/>`],
-  franja: ["Franja", null, (c) => `<path d="M56 96Q48 34 102 32Q156 32 150 92Q146 76 140 70L132 80L124 66L112 78L102 64L90 76L80 64L70 78Q62 82 56 96Z" fill="${c}" ${stroke}/>`],
-  chanel: ["Chanel", (c) => `<path d="M52 80Q46 128 62 142L150 142Q160 126 154 80Z" fill="${c}" ${stroke}/>`,
-    (c) => `<path d="M54 110Q44 36 102 32Q158 34 154 108Q150 84 140 72Q120 76 104 60Q90 78 66 80Q58 92 54 110Z" fill="${c}" ${stroke}/>`],
-  longo: ["Longo", (c) => `<path d="M58 70Q50 150 62 180L142 180Q154 150 148 70Z" fill="${c}" ${stroke}/>`,
-    (c) => `<path d="M56 100Q46 34 102 32Q156 32 152 100Q146 70 128 62Q104 70 80 62Q62 72 56 100Z" fill="${c}" ${stroke}/>`],
-  cacheadolongo: ["Cacheado longo", (c) => curls([[58, 86, 18], [52, 112, 18], [56, 140, 18], [64, 166, 16], [148, 86, 18], [154, 112, 18], [150, 140, 18], [142, 166, 16]], c),
-    (c) => curls([[62, 72, 15], [66, 50, 15], [84, 36, 16], [104, 30, 17], [124, 34, 16], [142, 48, 15], [150, 70, 14]], c) +
-      `<path d="M58 72Q66 50 100 46Q136 46 148 72L146 62Q130 38 100 38Q70 38 58 62Z" fill="${c}"/>`],
-  rabo: ["Rabo de cavalo", (c) => `<path d="M140 56Q178 60 170 118Q166 150 150 158Q158 126 150 100Q148 78 134 66Z" fill="${c}" ${stroke}/>`,
-    (c) => `<path d="M58 86Q52 34 102 32Q150 32 150 84Q142 60 118 56Q96 54 80 64Q64 72 58 86Z" fill="${c}" ${stroke}/><path d="M136 52l12-6l4 12l-12 6z" fill="#FF7A6B" ${st(4)}/>`],
-  trancas: ["Tranças", (c) => [62, 146].map((x) => [0, 1, 2, 3, 4].map((i) => `<ellipse cx="${x}" cy="${104 + i * 16}" rx="10" ry="9" fill="${c}" ${st(5)}/>`).join("")).join("") +
-    `<circle cx="62" cy="186" r="5" fill="#FF7A6B" ${st(3)}/><circle cx="146" cy="186" r="5" fill="#FF7A6B" ${st(3)}/>`,
-    (c) => `<path d="M56 96Q48 34 102 32Q156 32 152 96Q148 70 130 60Q114 56 102 46Q90 56 74 60Q58 70 56 96Z" fill="${c}" ${stroke}/><path d="M102 34L102 48" ${st(3)}/>`],
-  coque: ["Coque", null, (c) => `<circle cx="104" cy="22" r="16" fill="${c}" ${stroke}/><path d="M58 84Q52 34 102 32Q152 32 150 86Q138 60 104 58Q76 58 58 84Z" fill="${c}" ${stroke}/>`],
-  raspado: ["Raspado", null, (c) => `<path d="M62 76Q62 40 100 40Q146 40 146 80Q130 56 100 54Q74 54 62 76Z" fill="${c}" opacity=".55"/>`],
-  careca: ["Careca", null, () => `<path d="M80 54q10-6 20-6" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".6"/>`],
+  curto: ["Curto", null, (p, c) => { const s = cap(p, c); p.row(8, 9, 22, c); p.set(9, 9, c); p.set(9, 10, s); p.set(22, 9, c); p.row(9, 12, 15, s); p.set(19, 9, s); }],
+  degrade: ["Degradê", null, (p, c, skin) => { const f = mix(c, skin, 0.55); p.row(5, 11, 20, c); p.rect(10, 6, 12, 2, c); p.rect(9, 8, 1, 4, f); p.rect(22, 8, 1, 4, f); p.row(8, 10, 21, f); p.set(13, 6, mix(c, "#FFFFFF", 0.35)); }],
+  moicano: ["Moicano", null, (p, c, skin) => { const f = mix(c, skin, 0.6); p.rect(9, 7, 14, 2, f); p.rect(14, 1, 4, 7, c); p.pts([[13, 3], [18, 2], [13, 5], [18, 5]], c); p.set(15, 1, mix(c, "#FFFFFF", 0.35)); }],
+  topete: ["Topete", null, (p, c) => { const s = cap(p, c, 4); p.pts([[11, 3], [12, 2], [15, 2], [16, 1], [17, 2], [19, 3], [20, 3]], c); p.rect(9, 8, 4, 3, c); p.set(9, 11, c); p.set(12, 11, s); p.row(8, 13, 22, c); p.set(22, 9, c); p.set(21, 9, s); }],
+  cacheado: ["Cacheado", null, (p, c) => { const s = cap(p, c, 4); p.pts([[10, 3], [12, 2], [15, 2], [18, 2], [21, 3], [8, 6], [8, 8], [23, 6], [23, 8], [8, 10], [23, 10]], c); p.row(8, 9, 22, c); p.pts([[10, 9], [13, 9], [16, 9], [19, 9], [22, 9]], c); p.pts([[11, 5], [16, 4], [20, 6], [12, 7], [18, 7]], s); }],
+  franja: ["Franja", null, (p, c) => { const s = cap(p, c); p.rect(9, 8, 14, 2, c); p.pts([[10, 10], [12, 10], [14, 10], [17, 10], [19, 10], [21, 10]], c); p.row(9, 10, 21, s); p.set(9, 10, c); p.set(22, 10, c); p.rect(9, 10, 1, 3, c); p.rect(22, 10, 1, 3, c); }],
+  chanel: ["Chanel", (p, c) => { p.rect(7, 9, 3, 8, shade(c, 0.85)); p.rect(22, 9, 3, 8, shade(c, 0.85)); }, (p, c) => { const s = cap(p, c); p.rect(9, 8, 14, 1, c); p.rect(9, 9, 5, 2, c); p.row(10, 14, 16, c); p.rect(8, 8, 2, 9, c); p.rect(22, 8, 2, 9, c); p.set(13, 10, s); }],
+  longo: ["Longo", (p, c) => { const s = shade(c, 0.82); p.rect(7, 9, 3, 13, s); p.rect(22, 9, 3, 13, s); p.row(22, 8, 9, s); p.row(22, 22, 23, s); }, (p, c) => { const s = cap(p, c); p.rect(9, 8, 14, 1, c); p.rect(9, 9, 4, 2, c); p.rect(18, 9, 5, 2, c); p.rect(8, 8, 2, 10, c); p.rect(22, 8, 2, 10, c); p.set(12, 10, s); p.set(18, 10, s); }],
+  cacheadolongo: ["Cacheado longo", (p, c) => { const s = shade(c, 0.82); for (let y = 8; y <= 22; y += 2) { p.rect(6, y, 4, 2, y % 4 ? c : s); p.rect(22, y, 4, 2, y % 4 ? c : s); } }, (p, c) => { const s = cap(p, c, 3); p.pts([[9, 2], [13, 1], [17, 1], [21, 2], [7, 5], [24, 5]], c); p.row(8, 9, 22, c); p.pts([[10, 9], [12, 9], [19, 9], [21, 9]], c); p.pts([[11, 4], [15, 3], [19, 5], [13, 6]], s); }],
+  rabo: ["Rabo de cavalo", (p, c) => { const s = shade(c, 0.82); p.rect(3, 5, 6, 3, c); p.rect(2, 8, 5, 4, c); p.rect(3, 12, 4, 3, s); p.rect(4, 15, 2, 2, s); p.rect(8, 4, 3, 3, "#E0533A"); }, (p, c) => { const s = cap(p, c); p.rect(9, 8, 14, 1, c); p.rect(17, 9, 6, 2, c); p.set(9, 9, c); p.set(16, 9, s); p.set(22, 11, c); }],
+  trancas: ["Tranças", (p, c) => { const s = shade(c, 0.8); for (let y = 11; y <= 23; y += 2) { p.rect(6, y, 3, 2, (y - 11) % 4 ? s : c); p.rect(23, y, 3, 2, (y - 11) % 4 ? s : c); } p.rect(6, 25, 3, 1, "#E0533A"); p.rect(23, 25, 3, 1, "#E0533A"); }, (p, c) => { const s = cap(p, c); p.rect(9, 8, 6, 2, c); p.rect(17, 8, 6, 2, c); p.row(8, 15, 16, s); p.rect(8, 8, 2, 4, c); p.rect(22, 8, 2, 4, c); }],
+  coque: ["Coque", null, (p, c) => { const s = cap(p, c); p.rect(13, 0, 6, 4, c); p.row(3, 13, 18, s); p.row(8, 9, 22, c); p.rect(9, 9, 1, 2, c); p.rect(22, 9, 1, 2, c); p.set(14, 1, mix(c, "#FFFFFF", 0.35)); }],
+  raspado: ["Raspado", null, (p, c, skin) => { const f = mix(c, skin, 0.55); p.row(5, 11, 20, f); p.rect(10, 6, 12, 2, f); p.rect(9, 8, 1, 3, f); p.rect(22, 8, 1, 3, f); }],
+  careca: ["Careca", null, (p, c, skin) => { p.set(13, 7, mix(skin, "#FFFFFF", 0.5)); p.set(14, 7, mix(skin, "#FFFFFF", 0.5)); }],
 };
 
-/* ---------- roupa: (cor, pele) ---------- */
-const TORSO = "M34 204Q36 160 76 148L128 148Q168 160 170 204Z";
+/* ---------- roupa ---------- */
+const SHOE = "#4A2E22", PANTS = "#353447", JEANS = "#3D5A99";
+function legs(p, c, shoe = SHOE) { p.rect(12, 25, 3, 4, c); p.rect(17, 25, 3, 4, c); p.set(14, 25, shade(c, 0.85)); p.set(17, 25, shade(c, 0.85)); p.rect(11, 29, 4, 1, shoe); p.rect(17, 29, 4, 1, shoe); }
+function torso(p, c, y0 = 17, y1 = 24) { p.rect(11, y0, 10, y1 - y0 + 1, c); }
+function arms(p, c, skin, sleeve = 6) { const s = shade(c, 0.85); for (let y = 17; y <= 23; y++) { const col = y < 17 + sleeve ? c : skin; p.rect(9, y, 2, 1, col); p.rect(21, y, 2, 1, col); } p.rect(9, 23, 2, 1, skin); p.rect(21, 23, 2, 1, skin); if (sleeve > 0) { p.set(10, 18, s); p.set(21, 18, s); } }
 export const BODIES = {
-  moletom: ["Moletom", (c) => `<path d="${TORSO}" fill="${c}" ${stroke}/>` +
-    `<path d="M80 150Q84 168 102 168Q120 168 124 150" fill="none" ${stroke}/><path d="M64 176L62 204M140 176L142 204" ${stroke}/><path d="M94 168v14M110 168v14" ${st(4)}/>`],
-  camiseta: ["Camiseta", (c) => `<path d="M38 204Q40 164 80 150Q100 160 124 150Q164 164 166 204Z" fill="${c}" ${stroke}/><path d="M82 151Q102 166 122 151" fill="none" ${st(4)}/>`],
-  camisa: ["Camisa social", (c) => `<path d="${TORSO}" fill="${c}" ${stroke}/><path d="M80 146L92 168L102 152L112 168L124 146" fill="${c}" ${st(5)}/><path d="M102 156V204" ${st(4)}/><circle cx="108" cy="172" r="2.5" fill="${INK}"/><circle cx="108" cy="186" r="2.5" fill="${INK}"/><circle cx="108" cy="200" r="2.5" fill="${INK}"/>`],
-  blusa: ["Blusa", (c) => `<path d="M36 204Q38 162 74 152Q100 176 130 152Q166 162 168 204Z" fill="${c}" ${stroke}/><path d="M74 152Q100 182 130 152" fill="none" ${st(4)}/><path d="M58 172Q62 160 74 154M146 172Q142 160 130 154" fill="none" ${st(4)}/><circle cx="102" cy="172" r="3.5" fill="#fff" ${st(2.5)}/>`],
-  regata: ["Regata", (c, s) => `<path d="${TORSO}" fill="${s}" ${stroke}/><path d="M66 204L66 156Q74 152 78 152Q86 172 102 172Q118 172 126 152Q132 152 138 156L138 204Z" fill="${c}" ${stroke}/>`],
-  vestido: ["Vestido", (c, s) => `<path d="${TORSO}" fill="${s}" ${stroke}/><path d="M62 204L66 170Q84 164 102 176Q120 164 138 170L142 204Z" fill="${c}" ${stroke}/><path d="M74 168L80 150M130 168L124 150" ${st(4)}/><circle cx="102" cy="176" r="4" fill="#fff" ${st(2.5)}/>`],
-  cropped: ["Cropped", (c, s) => `<path d="${TORSO}" fill="${s}" ${stroke}/><path d="M38 192Q40 162 78 150Q100 162 126 150Q164 162 166 192Z" fill="${c}" ${stroke}/><path d="M82 151Q102 164 122 151" fill="none" ${st(4)}/><circle cx="102" cy="200" r="2" fill="${INK}" opacity=".5"/>`],
-  jaqueta: ["Jaqueta", (c) => `<path d="${TORSO}" fill="${c}" ${stroke}/>` +
-    `<path d="M102 154L102 204" ${stroke}/><path d="M80 148L94 172L102 156L110 172L124 148" fill="#F2F2F2" ${st(5)}/><path d="M60 182h18M126 182h18" ${st(4)}/>`],
-  terno: ["Terno", (c) => `<path d="${TORSO}" fill="${c}" ${stroke}/>` +
-    `<path d="M84 148L102 186L120 148Z" fill="#F7F7F7" ${st(5)}/><path d="M98 160L106 160L104 184L100 184Z" fill="#D9473B" ${st(3)}/><path d="M84 148L96 190M120 148L108 190" ${st(5)}/>`],
+  moletom: ["Moletom", (p, c, skin) => { legs(p, PANTS); torso(p, c); arms(p, c, skin); const s = shade(c, 0.8); p.row(17, 13, 18, s); p.set(14, 18, "#FFFFFF"); p.set(17, 18, "#FFFFFF"); p.row(22, 13, 18, s); p.set(13, 23, s); p.set(18, 23, s); }],
+  camiseta: ["Camiseta", (p, c, skin) => { legs(p, JEANS); torso(p, c); arms(p, c, skin, 2); p.row(17, 14, 17, shade(c, 0.78)); }],
+  camisa: ["Camisa social", (p, c, skin) => { legs(p, PANTS); torso(p, c); arms(p, c, skin); const s = shade(c, 0.78); p.pts([[13, 17], [14, 18], [18, 17], [17, 18]], "#FFFFFF"); p.pts([[15, 19], [15, 21], [15, 23]], s); p.row(24, 11, 20, "#5A3A26"); }],
+  blusa: ["Blusa", (p, c, skin) => { legs(p, JEANS); torso(p, c); arms(p, c, skin, 2); p.rect(9, 17, 2, 2, c); p.rect(21, 17, 2, 2, c); p.row(17, 13, 18, skin); p.row(18, 14, 17, skin); p.set(15, 20, "#FFFFFF"); p.row(23, 11, 20, shade(c, 0.82)); }],
+  regata: ["Regata", (p, c, skin) => { legs(p, PANTS); torso(p, c); arms(p, skin, skin, 0); p.rect(11, 17, 1, 2, skin); p.rect(20, 17, 1, 2, skin); p.row(17, 14, 17, skin); }],
+  vestido: ["Vestido", (p, c, skin) => { p.rect(12, 26, 3, 3, skin); p.rect(17, 26, 3, 3, skin); p.rect(11, 29, 4, 1, SHOE); p.rect(17, 29, 4, 1, SHOE); torso(p, c, 17, 22); p.rect(10, 23, 12, 3, c); p.row(25, 10, 21, shade(c, 0.82)); arms(p, skin, skin, 0); p.row(17, 13, 18, skin); p.set(12, 17, c); p.set(19, 17, c); p.set(15, 22, "#FFFFFF"); p.set(16, 22, "#FFFFFF"); }],
+  jardineira: ["Jardineira", (p, c, skin) => { legs(p, c); torso(p, "#F4F1EA"); arms(p, "#F4F1EA", skin, 2); p.rect(12, 20, 8, 5, c); p.rect(12, 17, 1, 3, c); p.rect(19, 17, 1, 3, c); p.set(13, 20, "#FFD36A"); p.set(18, 20, "#FFD36A"); p.row(22, 14, 17, shade(c, 0.8)); }],
+  cropped: ["Cropped", (p, c, skin) => { legs(p, JEANS); torso(p, skin); torso(p, c, 17, 21); arms(p, c, skin, 2); p.row(17, 14, 17, shade(c, 0.78)); p.set(15, 23, shade(skin, 0.8)); p.row(24, 11, 20, JEANS); }],
+  jaqueta: ["Jaqueta", (p, c, skin) => { legs(p, shade(c, 0.6)); torso(p, c); arms(p, c, skin); p.rect(14, 17, 4, 8, "#2E2B36"); p.pts([[13, 17], [13, 18], [18, 17], [18, 18]], shade(c, 0.75)); p.pts([[12, 21], [19, 21]], shade(c, 0.75)); }],
+  terno: ["Terno", (p, c, skin) => { legs(p, c); torso(p, c); arms(p, c, skin); p.rect(14, 17, 4, 4, "#F4F4F4"); p.rect(15, 17, 2, 6, "#C8372D"); p.set(15, 17, "#F4F4F4"); p.set(16, 17, "#F4F4F4"); p.pts([[13, 17], [13, 18], [18, 17], [18, 18]], shade(c, 1.25)); }],
+  tunica: ["Túnica", (p, c, skin) => { p.rect(12, 27, 3, 2, "#6B4A2F"); p.rect(17, 27, 3, 2, "#6B4A2F"); p.rect(11, 29, 4, 1, SHOE); p.rect(17, 29, 4, 1, SHOE); torso(p, c, 17, 26); p.rect(10, 24, 12, 3, c); arms(p, c, skin); p.row(21, 11, 20, "#7A4F2C"); p.set(15, 21, "#E9C25A"); p.row(26, 10, 21, shade(c, 0.8)); p.pts([[15, 17], [16, 17], [15, 18], [16, 18]], shade(c, 0.78)); }],
 };
 
 /* ---------- acessórios ---------- */
+const GOLD = "#F2C14E";
 export const GLASSES = {
-  nenhum: ["Sem óculos", ""],
-  redondo: ["Redondo", `<g fill="rgba(255,255,255,.25)" ${st(5)}><circle cx="84" cy="92" r="12"/><circle cx="112" cy="92" r="12"/></g><path d="M96 92h4M124 90l22-4" ${st(5)}/>`],
-  quadrado: ["Quadrado", `<g fill="rgba(255,255,255,.25)" ${st(5)}><rect x="70" y="82" width="26" height="20" rx="4"/><rect x="100" y="82" width="26" height="20" rx="4"/></g><path d="M126 88l20-3" ${st(5)}/>`],
-  gatinho: ["Gatinho", `<g fill="rgba(255,255,255,.25)" ${st(5)}><path d="M68 84Q84 80 96 86Q96 102 82 102Q70 100 68 84Z"/><path d="M100 86Q114 80 130 84Q128 100 116 102Q102 102 100 86Z"/></g><path d="M130 86l16-3" ${st(5)}/>`],
-  sol: ["De sol", `<g fill="${INK}" ${st(5)}><path d="M68 84h30q0 18-15 18t-15-18z"/><path d="M100 84h30q0 18-15 18t-15-18z"/></g><path d="M130 86l16-3" ${st(5)}/>`],
-  aviador: ["Aviador", `<path d="M62 82Q100 74 148 82" fill="none" stroke="#8B5A2B" stroke-width="10" stroke-linecap="round"/><g fill="#BFE8FF" ${st(5)}><circle cx="84" cy="86" r="13"/><circle cx="114" cy="86" r="13"/></g><path d="M80 80l6 6M110 80l6 6" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`],
+  nenhum: ["Sem óculos", () => {}],
+  redondo: ["Redondo", (p) => { const k = INK; p.pts([[11, 10], [12, 10], [13, 10], [10, 11], [14, 11], [10, 12], [14, 12], [11, 13], [12, 13], [13, 13], [17, 10], [18, 10], [19, 10], [16, 11], [20, 11], [16, 12], [20, 12], [17, 13], [18, 13], [19, 13], [15, 11]], k); }],
+  quadrado: ["Quadrado", (p) => { const k = INK; p.row(10, 10, 14, k); p.row(13, 10, 14, k); p.rect(10, 11, 1, 2, k); p.rect(14, 11, 1, 2, k); p.row(10, 17, 21, k); p.row(13, 17, 21, k); p.rect(17, 11, 1, 2, k); p.rect(21, 11, 1, 2, k); p.row(11, 15, 16, k); }],
+  gatinho: ["Gatinho", (p) => { const k = "#C2334D"; p.row(10, 10, 14, k); p.row(13, 11, 13, k); p.set(10, 12, k); p.set(14, 12, k); p.set(9, 9, k); p.row(10, 17, 21, k); p.row(13, 18, 20, k); p.set(17, 12, k); p.set(21, 12, k); p.set(22, 9, k); p.row(11, 15, 16, k); }],
+  sol: ["De sol", (p) => { p.rect(10, 10, 5, 3, INK); p.rect(17, 10, 5, 3, INK); p.row(10, 15, 16, INK); p.set(11, 10, "#6B6B80"); p.set(18, 10, "#6B6B80"); }],
+  aviador: ["Aviador", (p) => { p.row(9, 8, 23, "#7A4F2C"); p.rect(10, 9, 5, 4, "#9AD8F2"); p.rect(17, 9, 5, 4, "#9AD8F2"); p.pts([[10, 9], [14, 9], [10, 12], [14, 12], [17, 9], [21, 9], [17, 12], [21, 12]], "#7A4F2C"); p.set(11, 10, "#FFFFFF"); p.set(18, 10, "#FFFFFF"); }],
 };
 export const EARRINGS = {
-  nenhum: ["Sem brinco", ""],
-  ponto: ["Ponto", `<circle cx="153" cy="123" r="4.5" fill="#FFC93C" ${st(3)}/>`],
-  argola: ["Argola", `<circle cx="153" cy="128" r="8" fill="none" stroke="${INK}" stroke-width="7"/><circle cx="153" cy="128" r="8" fill="none" stroke="#FFC93C" stroke-width="3"/>`],
-  pingente: ["Pingente", `<path d="M153 120v10" ${st(3)}/><path d="M153 128l6 8l-6 8l-6-8z" fill="#7FE6FF" ${st(3)}/>`],
+  nenhum: ["Sem brinco", () => {}],
+  ponto: ["Ponto", (p) => { p.set(8, 14, GOLD); p.set(23, 14, GOLD); }],
+  argola: ["Argola", (p) => { p.pts([[8, 14], [7, 15], [8, 16], [23, 14], [24, 15], [23, 16]], GOLD); }],
+  pingente: ["Pingente", (p) => { p.set(8, 14, GOLD); p.set(23, 14, GOLD); p.set(8, 15, "#7FE6FF"); p.set(23, 15, "#7FE6FF"); }],
 };
-// Itens: [nome, desenho(cor), esconde o cabelo?]
+// Itens de cabeça: [nome, desenho, esconde o cabelo?]
 export const ITEMS = {
   nenhum: ["Nada", null, false],
-  laco: ["Laço", (c) => `<g transform="translate(64 40) rotate(-18)"><path d="M0 0L-22 -12L-22 12Z M0 0L22 -12L22 12Z" fill="${c}" ${st(5)}/><circle cx="0" cy="0" r="6" fill="${c}" ${st(4)}/></g>`, false],
-  tiara: ["Tiara", (c) => `<path d="M58 72Q62 36 102 34Q144 36 148 74" fill="none" ${st(11)}/><path d="M58 72Q62 36 102 34Q144 36 148 74" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/>`, false],
-  bandana: ["Bandana", (c) => `<path d="M58 70Q100 52 150 70L150 84Q100 66 58 84Z" fill="${c}" ${stroke}/><path d="M150 74l18-10l-4 14l12 6l-22 2z" fill="${c}" ${st(4)}/><circle cx="84" cy="72" r="2.5" fill="#fff"/><circle cx="104" cy="66" r="2.5" fill="#fff"/><circle cx="124" cy="68" r="2.5" fill="#fff"/>`, false],
-  bone: ["Boné", (c) => `<path d="M58 74Q56 34 102 32Q148 32 150 78Z" fill="${c}" ${stroke}/><path d="M58 74Q40 76 30 84Q46 90 74 80" fill="${c}" ${stroke}/><circle cx="104" cy="32" r="5" fill="${INK}"/>`, false],
-  gorro: ["Gorro", (c) => `<path d="M56 78Q54 30 102 28Q150 30 150 80Z" fill="${c}" ${stroke}/><path d="M52 80Q102 66 154 82L152 70Q102 54 54 68Z" fill="#F2F2F2" ${stroke}/><circle cx="102" cy="20" r="11" fill="#F2F2F2" ${stroke}/>`, false],
-  fone: ["Fone", (c) => `<path d="M56 94Q50 26 104 24Q158 26 152 96" fill="none" ${st(9)}/><path d="M56 94Q50 26 104 24Q158 26 152 96" fill="none" stroke="${c}" stroke-width="4"/><rect x="44" y="86" width="20" height="30" rx="9" fill="${c}" ${stroke}/><rect x="144" y="86" width="20" height="30" rx="9" fill="${c}" ${stroke}/>`, false],
-  coroa: ["Coroa", () => `<path d="M68 46L74 14L90 32L104 8L118 32L134 14L138 46Z" fill="#FFC93C" ${stroke}/><circle cx="104" cy="34" r="5" fill="#E8414C"/><circle cx="84" cy="38" r="4" fill="#2FA6A0"/><circle cx="124" cy="38" r="4" fill="#2FA6A0"/>`, false],
-  gato: ["Gato", () => `<path d="M96 36Q100 6 132 12Q156 16 156 36Z" fill="#8A8A8A" ${stroke}/><path d="M156 30Q176 24 172 4" fill="none" ${st(7)}/><path d="M156 30Q176 24 172 4" fill="none" stroke="#8A8A8A" stroke-width="2.5"/>` +
-    `<path d="M76 40Q72 14 96 14Q118 14 116 40Z" fill="#8A8A8A" ${stroke}/><path d="M78 22L80 4L92 16M102 16L114 4L114 22" fill="#8A8A8A" ${stroke}/><path d="M86 30Q96 22 106 30L104 40L88 40Z" fill="#F4F4F4"/><circle cx="88" cy="26" r="3" fill="${INK}"/><circle cx="104" cy="26" r="3" fill="${INK}"/><path d="M92 33q4 3 8 0" fill="none" ${st(3)}/>`, false],
-  moto: ["Capacete", (c) => `<path d="M46 108Q40 26 104 24Q164 26 158 110Q158 134 140 140L134 118Q132 84 102 82Q74 82 70 110L66 140Q46 132 46 108Z" fill="${c}" ${stroke}/><path d="M66 72Q102 52 140 70" fill="none" stroke="#fff" stroke-width="12" opacity=".8"/><circle cx="148" cy="100" r="9" fill="#F2F2F2" ${st(4)}/>`, true],
-  espacial: ["Espacial", () => `<circle cx="102" cy="92" r="62" fill="rgba(191,232,255,.35)" ${stroke}/><path d="M60 62Q74 42 96 38" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" opacity=".9"/><path d="M58 146Q102 164 146 146L150 160Q102 178 54 160Z" fill="#DDE3EA" ${stroke}/><circle cx="148" cy="138" r="7" fill="#FF7A6B" ${st(3)}/>`, false],
-  aureola: ["Auréola", () => `<ellipse cx="104" cy="20" rx="34" ry="9" fill="none" stroke="#FFC93C" stroke-width="7"/><ellipse cx="104" cy="20" rx="34" ry="9" fill="none" stroke="${INK}" stroke-width="2" opacity=".5"/>`, false],
+  laco: ["Laço", (p, c) => { p.rect(8, 4, 2, 3, c); p.rect(12, 4, 2, 3, c); p.rect(10, 5, 2, 1, shade(c, 0.75)); p.set(8, 4, shade(c, 1.2)); }, false],
+  tiara: ["Tiara", (p, c) => { p.row(5, 11, 20, c); p.set(10, 6, c); p.set(21, 6, c); p.set(15, 4, "#7FE6FF"); p.set(16, 4, "#7FE6FF"); }, false],
+  bandana: ["Bandana", (p, c) => { p.rect(9, 7, 14, 2, c); p.pts([[23, 8], [24, 9], [25, 10], [24, 10]], c); p.pts([[11, 7], [15, 8], [19, 7]], "#FFFFFF"); }, false],
+  bone: ["Boné", (p, c) => { const s = shade(c, 0.8); p.row(3, 11, 20, c); p.rect(10, 4, 12, 4, c); p.row(7, 9, 22, s); p.rect(4, 7, 6, 1, s); p.rect(5, 8, 5, 1, s); p.set(15, 3, "#FFFFFF"); }, false],
+  gorro: ["Gorro", (p, c) => { p.row(2, 12, 19, c); p.rect(10, 3, 12, 4, c); p.row(7, 9, 22, "#F4F1EA"); p.row(8, 9, 22, "#F4F1EA"); p.rect(14, 0, 3, 2, "#F4F1EA"); p.pts([[12, 4], [15, 5], [18, 4]], shade(c, 0.8)); }, false],
+  fone: ["Fone", (p, c) => { p.row(3, 11, 20, INK); p.set(10, 4, INK); p.set(21, 4, INK); p.rect(9, 5, 1, 4, INK); p.rect(22, 5, 1, 4, INK); p.rect(7, 9, 3, 5, c); p.rect(22, 9, 3, 5, c); p.set(8, 10, shade(c, 1.3)); }, false],
+  mago: ["Chapéu de mago", (p, c) => { const s = shade(c, 0.78); p.rect(4, 8, 24, 2, c); p.row(10, 6, 25, s); p.rect(10, 5, 12, 3, c); p.rect(12, 3, 9, 2, c); p.rect(15, 1, 6, 2, c); p.rect(19, 0, 4, 1, c); p.rect(22, 0, 2, 2, s); p.row(7, 10, 21, "#E9C25A"); p.set(14, 4, mix(c, "#FFFFFF", 0.4)); }, false],
+  coroa: ["Coroa", (p) => { p.rect(11, 3, 10, 3, GOLD); p.pts([[11, 1], [11, 2], [14, 2], [15, 1], [16, 1], [17, 2], [20, 1], [20, 2]], GOLD); p.set(15, 4, "#E8414C"); p.set(12, 4, "#2FA6A0"); p.set(19, 4, "#2FA6A0"); p.row(5, 11, 20, shade(GOLD, 0.8)); }, false],
+  gato: ["Gato", (p) => { const g = "#8D8A90", w = "#F4F1EA"; p.rect(11, 1, 9, 3, g); p.rect(13, 2, 4, 2, w); p.pts([[11, 0], [14, 0]], g); p.set(12, 2, INK); p.set(15, 2, INK); p.rect(20, 2, 3, 2, g); p.set(23, 1, g); p.set(24, 0, g); }, false],
+  moto: ["Capacete", (p, c) => { const s = shade(c, 0.78); p.row(2, 11, 20, c); p.row(3, 9, 22, c); p.rect(8, 4, 16, 6, c); p.rect(7, 10, 3, 7, c); p.rect(22, 10, 3, 7, c); p.row(10, 10, 21, s); p.row(5, 11, 20, "#FFFFFF"); p.set(23, 13, "#F4F1EA"); }, true],
+  espacial: ["Espacial", () => {}, false], // desenhado em compose(), porque envolve a cabeça toda
+  aureola: ["Auréola", (p) => { p.row(1, 12, 19, GOLD); p.set(11, 2, GOLD); p.set(20, 2, GOLD); p.row(3, 12, 19, GOLD); }, false],
 };
+
+// Equipamentos de RPG (mão ou costas): [nome, atrás do corpo, na frente]
+export const GEAR = {
+  nenhum: ["Nada", null, null],
+  mochila: ["Mochila", (p) => { const b = "#8C5634"; p.rect(21, 17, 5, 7, b); p.rect(22, 16, 3, 1, b); p.row(19, 22, 25, shade(b, 0.75)); p.set(24, 21, GOLD); }, (p) => { p.rect(19, 17, 1, 6, "#6B4A2F"); }],
+  capa: ["Capa", (p) => { const r = "#C23B3B", d = shade(r, 0.75); p.rect(8, 16, 16, 4, r); p.rect(7, 20, 18, 4, r); p.rect(6, 24, 20, 4, r); p.row(28, 6, 25, d); p.pts([[7, 21], [6, 25], [24, 21], [25, 25]], d); }, (p) => { p.set(12, 17, GOLD); p.set(19, 17, GOLD); }],
+  cajado: ["Cajado", null, (p) => { const w = "#7A4F2C"; p.rect(6, 9, 1, 21, w); p.rect(7, 12, 1, 18, shade(w, 0.8)); p.rect(5, 6, 3, 3, "#7FE6FF"); p.set(5, 6, "#FFFFFF"); p.rect(7, 22, 2, 2, "#FBDCC6"); }],
+  espada: ["Espada", null, (p) => { const m = "#C9D2DA"; p.rect(24, 10, 2, 11, m); p.set(24, 10, "#FFFFFF"); p.rect(22, 21, 6, 1, GOLD); p.rect(24, 22, 2, 3, "#6B4A2F"); }],
+  escudo: ["Escudo", null, (p) => { const s = "#3E70D1"; p.rect(4, 17, 6, 7, s); p.rect(5, 24, 4, 1, s); p.set(6, 25, s); p.set(7, 25, s); p.rect(6, 19, 2, 3, GOLD); p.row(17, 4, 9, shade(s, 1.25)); }],
+  livro: ["Livro", null, (p) => { p.rect(20, 20, 5, 5, "#6A3FC2"); p.rect(21, 21, 3, 3, "#F4F1EA"); p.set(22, 21, "#6A3FC2"); }],
+};
+
 export const FRAMES = {
   nenhuma: ["Sem moldura", null],
   bronze: ["Bronze", "#D08A4E"],
@@ -138,32 +170,29 @@ export const FRAMES = {
 };
 
 /* ---------- humor do dia ---------- */
-// Muda sobrancelhas e boca e acrescenta detalhes; usado no painel conforme a carga de missões.
 export const MOODS = {
   calmo: { name: "Dia tranquilo", ring: "#2FD0C8",
-    face: () => `<path d="M76 80q8-6 16-2M102 78q8-4 16 2" fill="none" ${st(4.5)}/>`,
-    mouth: (c) => `<path d="M85 109q12 16 24 0z" fill="#B23A3A" stroke="${c}" stroke-width="4.5" stroke-linejoin="round"/><path d="M89 110h16" stroke="#fff" stroke-width="3"/>`,
-    extra: `<path d="M164 40l3 8 8 3-8 3-3 8-3-8-8-3 8-3z" fill="#FFC93C" ${st(2.5)}/><path d="M38 58l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="#FFC93C" ${st(2)}/>` },
+    mouth: (p, c) => { p.pts([[13, 14], [14, 15], [15, 15], [16, 15], [17, 15], [18, 14]], c); p.row(16, 15, 16, "#B43A3A"); },
+    extra: (p) => { p.pts([[4, 5], [3, 6], [5, 6], [4, 7], [27, 3], [26, 4], [28, 4], [27, 5]], "#FFE27A"); } },
   focado: { name: "Dia movimentado", ring: "#FFBD65",
-    face: () => `<path d="M76 82l15 1M103 83l15-1" fill="none" ${st(4.5)}/>`,
-    mouth: (c) => `<path d="M90 114q7 3 14 0" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/>`,
-    extra: `<path d="M166 62h12M170 50l8-6M170 74l8 6" ${st(3.5)}/>` },
+    mouth: (p, c) => { p.row(15, 14, 17, c); },
+    face: (p) => { p.row(EYE_Y - 1, EYE_L - 1, EYE_L + 1, INK); p.row(EYE_Y - 1, EYE_R, EYE_R + 2, INK); },
+    extra: (p) => { p.pts([[27, 8], [28, 8], [29, 8], [27, 5], [28, 4], [27, 11], [28, 12]], "#1E1620"); } },
   estressado: { name: "Dia puxado", ring: "#FF7A6B",
-    face: () => `<path d="M76 84l15-6M103 78l15 6" fill="none" ${st(4.5)}/>`,
-    mouth: (c) => `<path d="M82 116q4-5 8 0t8 0t8 0t8 0" fill="none" stroke="${c}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>`,
-    extra: `<path d="M136 52q8 10 0 16q-8-6 0-16z" fill="#8FD8FF" ${st(3)}/><path d="M40 46l8 6M34 60h10M42 72l8-4" ${st(3.5)}/>` },
+    mouth: (p, c) => { p.pts([[13, 15], [14, 14], [15, 15], [16, 14], [17, 15], [18, 14]], c); },
+    face: (p) => { p.pts([[EYE_L - 1, EYE_Y - 1], [EYE_L, EYE_Y - 2], [EYE_R + 1, EYE_Y - 2], [EYE_R + 2, EYE_Y - 1]], INK); p.set(22, 9, "#8FD8FF"); p.set(22, 10, "#8FD8FF"); p.set(21, 10, "#CFF0FF"); },
+    extra: (p) => { p.pts([[3, 4], [4, 5], [2, 8], [3, 8], [4, 8], [3, 11], [4, 10]], "#1E1620"); } },
 };
 
 /* ---------- pontos de partida ---------- */
 export const PRESETS = {
-  feminino: ["Feminino", { hair: "longo", hairC: 1, eyes: "brilho", lashes: "sim", lips: "rosa", mouth: "sorriso", beard: "nenhuma", body: "blusa", bodyC: 8, ears: "argola", glasses: "nenhum", item: "nenhum", bg: 2 }],
-  masculino: ["Masculino", { hair: "degrade", hairC: 0, eyes: "pontos", lashes: "nao", lips: "nao", mouth: "sorriso", beard: "rala", body: "camisa", bodyC: 4, ears: "nenhum", glasses: "nenhum", item: "nenhum", bg: 5 }],
-  neutro: ["Neutro", { hair: "cacheado", hairC: 0, eyes: "pontos", lashes: "nao", lips: "nao", mouth: "nenhuma", beard: "nenhuma", body: "moletom", bodyC: 0, ears: "nenhum", glasses: "nenhum", item: "nenhum", bg: 0 }],
+  feminino: ["Feminino", { hair: "rabo", hairC: 3, eyes: "brilho", lashes: "sim", lips: "rosa", mouth: "sorriso", beard: "nenhuma", body: "jardineira", bodyC: 4, ears: "ponto", glasses: "nenhum", item: "nenhum", gear: "nenhum", bg: 0 }],
+  masculino: ["Masculino", { hair: "topete", hairC: 6, eyes: "pontos", lashes: "nao", lips: "nao", mouth: "sorriso", beard: "nenhuma", body: "jaqueta", bodyC: 9, ears: "nenhum", glasses: "nenhum", item: "nenhum", gear: "nenhum", bg: 0 }],
+  neutro: ["Neutro", { hair: "curto", hairC: 1, eyes: "pontos", lashes: "nao", lips: "nao", mouth: "neutra", beard: "nenhuma", body: "tunica", bodyC: 1, ears: "nenhum", glasses: "nenhum", item: "nenhum", gear: "mochila", bg: 1 }],
 };
 
-export const DEFAULT_AVATAR = { skin: 0, hair: "cacheado", hairC: 0, eyes: "pontos", mouth: "nenhuma", lashes: "nao", lips: "nao", beard: "nenhuma", body: "moletom", bodyC: 0, glasses: "nenhum", ears: "nenhum", item: "nenhum", itemC: 1, bg: 0, frame: "nenhuma" };
+export const DEFAULT_AVATAR = { skin: 0, hair: "topete", hairC: 6, eyes: "pontos", mouth: "sorriso", lashes: "nao", lips: "nao", beard: "nenhuma", body: "jaqueta", bodyC: 9, glasses: "nenhum", ears: "nenhum", item: "nenhum", itemC: 1, gear: "nenhum", bg: 0, frame: "nenhuma" };
 
-// Normaliza um avatar guardado (campos desconhecidos voltam ao padrão).
 export function cleanAvatar(a) {
   const d = { ...DEFAULT_AVATAR, ...(a || {}) };
   const pick = (v, set, def) => (typeof v === "string" && v in set ? v : def);
@@ -174,39 +203,85 @@ export function cleanAvatar(a) {
     lashes: pick(d.lashes, LASHES, "nao"), lips: pick(d.lips, LIPS, "nao"), beard: pick(d.beard, BEARDS, "nenhuma"),
     body: pick(d.body, BODIES, "moletom"), bodyC: idx(d.bodyC, CLOTH_COLORS),
     glasses: pick(d.glasses, GLASSES, "nenhum"), ears: pick(d.ears, EARRINGS, "nenhum"),
-    item: pick(d.item, ITEMS, "nenhum"), itemC: idx(d.itemC, CLOTH_COLORS),
+    item: pick(d.item, ITEMS, "nenhum"), itemC: idx(d.itemC, CLOTH_COLORS), gear: pick(d.gear, GEAR, "nenhum"),
     bg: idx(d.bg, BG_COLORS), frame: pick(d.frame, FRAMES, "nenhuma"),
   };
+}
+
+// Monta a grade de pixels do personagem.
+function compose(a, mood) {
+  const p = canvas();
+  const skin = SKINS[a.skin], hc = HAIR_COLORS[a.hairC], bc = CLOTH_COLORS[a.bodyC], ic = CLOTH_COLORS[a.itemC];
+  const hair = HAIRS[a.hair], item = ITEMS[a.item], gear = GEAR[a.gear], md = mood ? MOODS[mood] : null;
+  const hideHair = item[2];
+  if (gear[1]) gear[1](p);
+  if (!hideHair && hair[1]) hair[1](p, hc, skin);
+  BODIES[a.body][1](p, bc, skin);
+  drawHead(p, skin);
+  EARRINGS[a.ears][1](p);
+  BLUSH(p);
+  BEARDS[a.beard][1](p, hc, skin);
+  EYES[a.eyes][1](p);
+  LASHES[a.lashes][1](p);
+  if (md && md.face) md.face(p);
+  const lipC = LIPS[a.lips][1], mouthC = lipC || INK;
+  const ownMouth = !md || (mood === "calmo" && a.mouth !== "nenhuma");
+  if (ownMouth) {
+    if (a.mouth === "nenhuma" && lipC) p.row(14, 15, 16, lipC);
+    else MOUTHS[a.mouth][1](p, mouthC);
+  } else md.mouth(p, mouthC);
+  if (!hideHair) hair[2](p, hc, skin);
+  GLASSES[a.glasses][1](p);
+  if (a.item === "espacial") {
+    const gl = "rgba(190,232,255,.42)";
+    for (let y = 2; y <= 18; y++) for (let x = 5; x <= 26; x++) {
+      const dx = x - 15.5, dy = y - 10.5;
+      if (dx * dx / 110 + dy * dy / 72 <= 1 && !p.get(x, y)) p.set(x, y, gl);
+    }
+    p.row(18, 9, 22, "#DDE3EA"); p.row(19, 9, 22, "#C3CBD5"); p.set(8, 5, "#FFFFFF"); p.set(9, 4, "#FFFFFF");
+  } else if (item[1]) item[1](p, ic);
+  if (gear[2]) gear[2](p);
+  // contorno: pixels vazios encostados no personagem ficam escuros
+  const out = p.g.slice();
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    if (p.get(x, y)) continue;
+    if (p.get(x - 1, y) || p.get(x + 1, y) || p.get(x, y - 1) || p.get(x, y + 1)) out[y * N + x] = INK;
+  }
+  // chão
+  for (let x = 9; x <= 22; x++) if (!out[31 * N + x]) out[31 * N + x] = "rgba(0,0,0,.14)";
+  // detalhes do humor (fora do personagem)
+  if (md && md.extra) { const e = canvas(); md.extra(e); e.g.forEach((c, i) => { if (c && !out[i]) out[i] = c; }); }
+  return out;
 }
 
 // Desenha o avatar como texto SVG. mood: "calmo" | "focado" | "estressado" (opcional).
 export function avatarSvg(raw, { size = 120, cls = "avsvg", title = "", mood = null } = {}) {
   const a = cleanAvatar(raw);
-  const skin = SKINS[a.skin], hc = HAIR_COLORS[a.hairC], bc = CLOTH_COLORS[a.bodyC], ic = CLOTH_COLORS[a.itemC];
-  const hair = HAIRS[a.hair], item = ITEMS[a.item], md = mood ? MOODS[mood] : null;
+  const grid = compose(a, mood);
   const frame = FRAMES[a.frame][1];
+  const bg = BG_COLORS[a.bg];
   const clip = "av" + Math.random().toString(36).slice(2, 8);
-  const hideHair = item[2];
-  const lipC = LIPS[a.lips][1];
-  const mouthC = lipC || INK;
-  // No humor tranquilo vale a boca escolhida; nos outros, a boca mostra a emoção.
-  const useOwnMouth = !md || (mood === "calmo" && a.mouth !== "nenhuma");
-  let mouth = useOwnMouth ? MOUTHS[a.mouth][1](mouthC) : md.mouth(mouthC);
-  if (useOwnMouth && lipC && a.mouth === "nenhuma") mouth = `<path d="M87 112q5-4 10 0q5-4 10 0q-5 7-10 7t-10-7z" fill="${lipC}" ${st(3)}/>`;
-  return `<svg class="${cls}" viewBox="0 0 200 200" width="${size}" height="${size}" role="img" aria-label="${title || "Avatar"}">` +
-    `<defs><clipPath id="${clip}"><circle cx="100" cy="100" r="${frame ? 90 : 100}"/></clipPath></defs>` +
-    (frame ? `<circle cx="100" cy="100" r="99" fill="${frame}"/><circle cx="100" cy="100" r="92" fill="none" stroke="${INK}" stroke-width="4"/>` : "") +
-    `<g clip-path="url(#${clip})">` +
-      `<rect width="200" height="200" fill="${BG_COLORS[a.bg]}"/>` +
-      (md ? md.extra : "") +
-      `<g transform="translate(15 12) scale(.85)">` +
-        (hideHair || !hair[1] ? "" : hair[1](hc)) +
-        BODIES[a.body][1](bc, skin) + NECK(skin) + HEAD(skin) +
-        EARRINGS[a.ears][1] +
-        CHEEKS + BEARDS[a.beard][1](hc) + EYES[a.eyes][1] + LASHES[a.lashes][1] + (md ? md.face() : "") + mouth +
-        (hideHair ? "" : hair[2](hc)) +
-        GLASSES[a.glasses][1] +
-        (item[1] ? item[1](ic) : "") +
-      `</g>` +
+  // fundo com pontinhos, como nas referências
+  let dots = "";
+  const dotC = shade(bg, 0.92);
+  for (let y = 1; y < N; y += 4) for (let x = (y % 8 === 1 ? 2 : 0); x < N; x += 4) dots += `<rect x="${x}" y="${y}" width="1" height="1" fill="${dotC}"/>`;
+  // junta pixels vizinhos da mesma cor numa linha (menos elementos)
+  let rects = "";
+  for (let y = 0; y < N; y++) {
+    let x = 0;
+    while (x < N) {
+      const c = grid[y * N + x];
+      if (!c) { x++; continue; }
+      let w = 1; while (x + w < N && grid[y * N + x + w] === c) w++;
+      rects += `<rect x="${x}" y="${y}" width="${w}" height="1" fill="${c}"/>`;
+      x += w;
+    }
+  }
+  const pad = frame ? 2.2 : 0;
+  return `<svg class="${cls}" viewBox="0 0 32 32" width="${size}" height="${size}" shape-rendering="crispEdges" role="img" aria-label="${title || "Avatar"}">` +
+    `<defs><clipPath id="${clip}"><circle cx="16" cy="16" r="${16 - pad}"/></clipPath></defs>` +
+    (frame ? `<circle cx="16" cy="16" r="16" fill="${frame}" shape-rendering="geometricPrecision"/><circle cx="16" cy="16" r="${16 - pad + 0.35}" fill="none" stroke="${INK}" stroke-width=".7" shape-rendering="geometricPrecision"/>` : "") +
+    `<g clip-path="url(#${clip})"><rect width="32" height="32" fill="${bg}"/>${dots}` +
+    `<g transform="translate(16 ${frame ? 30 : 31}) scale(${(frame ? (16 - pad) / 16 : 1) * 0.9}) translate(-16 -31)">${rects}</g>` +
     `</g></svg>`;
 }

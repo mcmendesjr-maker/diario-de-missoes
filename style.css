@@ -513,3 +513,7 @@ details.more[open] summary{margin-bottom:8px}
 .hero-top{flex-wrap:wrap}
 @media (max-width:380px){.hero-main{gap:12px}.rank{font-size:13px}}
 .avsheet{grid-template-rows:auto auto auto auto minmax(0,1fr) auto}
+/* ===== v10 · pixel art ===== */
+.avsvg{image-rendering:pixelated}
+.avopt svg{width:72px;height:72px}
+.avgrid{grid-template-columns:repeat(auto-fill,minmax(92px,1fr))}

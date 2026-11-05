@@ -3,10 +3,10 @@ import {
   db, login, logout, watchUser,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
-} from "./firebase.js?v=9";
-import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=9";
-import { ICONS, iconSvg, TAG_COLORS, tagColor, burst, confetti, countTo } from "./look.js?v=9";
-import { avatarSvg, cleanAvatar, DEFAULT_AVATAR, SKINS, HAIR_COLORS, CLOTH_COLORS, BG_COLORS, HAIRS, EYES, MOUTHS, LASHES, LIPS, BEARDS, BODIES, GLASSES, EARRINGS, ITEMS, FRAMES, MOODS, PRESETS } from "./avatar.js?v=9";
+} from "./firebase.js?v=10";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=10";
+import { ICONS, iconSvg, TAG_COLORS, tagColor, burst, confetti, countTo } from "./look.js?v=10";
+import { avatarSvg, cleanAvatar, DEFAULT_AVATAR, SKINS, HAIR_COLORS, CLOTH_COLORS, BG_COLORS, HAIRS, EYES, MOUTHS, LASHES, LIPS, BEARDS, BODIES, GLASSES, EARRINGS, ITEMS, GEAR, FRAMES, MOODS, PRESETS } from "./avatar.js?v=10";
 
 /* =========================================================
    Regras de jogo
@@ -1146,6 +1146,13 @@ const UNLOCKS = {
     espacial: [() => curLevel() >= 10, "Nível 10"],
     coroa: [() => curLevel() >= 20, "Nível 20"],
     aureola: [() => SECRETS.some((x) => hasAch(x.id)), "Qualquer conquista secreta"],
+    mago: [() => curLevel() >= 12, "Nível 12"],
+  },
+  gear: {
+    cajado: [() => curLevel() >= 8, "Nível 8"],
+    capa: [() => curLevel() >= 15, "Nível 15"],
+    espada: [() => hasAch("pontual-2"), "Pontual Prata"],
+    escudo: [() => hasAch("semanasematraso"), "Semana Sem Atraso"],
   },
   glasses: {
     sol: [() => curLevel() >= 5, "Nível 5"],
@@ -1228,7 +1235,8 @@ function renderAvatarEditor() {
   if (avTab === "barba") html = '<span class="fl">Barba e bigode</span><p class="hint">A barba usa a cor do cabelo.</p>' + optGrid("beard", Object.entries(BEARDS));
   if (avTab === "cabelo") html = swatches("hairC", HAIR_COLORS, "Cor do cabelo") + '<span class="fl">Estilo</span>' + optGrid("hair", Object.entries(HAIRS));
   if (avTab === "roupa") html = swatches("bodyC", CLOTH_COLORS, "Cor da roupa") + '<span class="fl">Roupa</span>' + optGrid("body", Object.entries(BODIES));
-  if (avTab === "itens") html = '<span class="fl">Óculos</span>' + optGrid("glasses", Object.entries(GLASSES)) + '<span class="fl">Brincos</span>' + optGrid("ears", Object.entries(EARRINGS)) + swatches("itemC", CLOTH_COLORS, "Cor do item") + '<span class="fl">Item</span>' + optGrid("item", Object.entries(ITEMS));
+  if (avTab === "itens") html = '<span class="fl">Óculos</span>' + optGrid("glasses", Object.entries(GLASSES)) + '<span class="fl">Brincos</span>' + optGrid("ears", Object.entries(EARRINGS)) + swatches("itemC", CLOTH_COLORS, "Cor do item") + '<span class="fl">Na cabeça</span>' + optGrid("item", Object.entries(ITEMS)) +
+    '<span class="fl">Equipamento</span>' + optGrid("gear", Object.entries(GEAR));
   if (avTab === "fundo") html = swatches("bg", BG_COLORS, "Cor do fundo") + '<span class="fl">Moldura</span>' + optGrid("frame", Object.entries(FRAMES));
   $("avOpts").innerHTML = html;
 }
@@ -1265,7 +1273,8 @@ $("avRandom").addEventListener("click", () => {
   const r = (n) => Math.floor(Math.random() * n);
   avDraft = { ...avDraft, skin: r(SKINS.length), hair: pickFree("hair", HAIRS), hairC: r(HAIR_COLORS.length), eyes: pickFree("eyes", EYES), mouth: pickFree("mouth", MOUTHS),
     lashes: pickFree("lashes", LASHES), lips: Math.random() < .3 ? pickFree("lips", LIPS) : "nao", beard: Math.random() < .3 ? pickFree("beard", BEARDS) : "nenhuma", ears: Math.random() < .4 ? pickFree("ears", EARRINGS) : "nenhum",
-    body: pickFree("body", BODIES), bodyC: r(CLOTH_COLORS.length), glasses: pickFree("glasses", GLASSES), item: pickFree("item", ITEMS), itemC: r(CLOTH_COLORS.length), bg: r(BG_COLORS.length) };
+    body: pickFree("body", BODIES), bodyC: r(CLOTH_COLORS.length), glasses: pickFree("glasses", GLASSES), item: pickFree("item", ITEMS), itemC: r(CLOTH_COLORS.length), bg: r(BG_COLORS.length),
+    gear: Math.random() < .5 ? pickFree("gear", GEAR) : "nenhum" };
   renderAvatarEditor();
 });
 $("avSave").addEventListener("click", async () => {

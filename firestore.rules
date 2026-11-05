@@ -19,7 +19,7 @@ service cloud.firestore {
         && (!('shields' in d) || (d.shields is list && d.shields.size() <= 400))
         && (!('tags' in d) || (d.tags is list && d.tags.size() <= 30))
         && (!('cardStyle' in d) || d.cardStyle in ['stripe', 'full'])
-        && (!('avatar' in d) || (d.avatar is map && d.avatar.size() <= 20))
+        && (!('avatar' in d) || (d.avatar is map && d.avatar.size() <= 24))
         && (!('useAvatar' in d) || d.useAvatar is bool);
     }
 
@@ -51,7 +51,7 @@ service cloud.firestore {
 
     function validMember(d) {
       return d.keys().hasOnly(['name', 'photo', 'title', 'avatar', 'level', 'total', 'week', 'weekXp', 'prevWeek', 'prevWeekXp', 'updated'])
-        && (!('avatar' in d) || d.avatar == null || (d.avatar is map && d.avatar.size() <= 20))
+        && (!('avatar' in d) || d.avatar == null || (d.avatar is map && d.avatar.size() <= 24))
         && d.name is string && d.name.size() <= 80
         && (!('title' in d) || (d.title is string && d.title.size() <= 40))
         && d.photo is string && d.photo.size() <= 600
