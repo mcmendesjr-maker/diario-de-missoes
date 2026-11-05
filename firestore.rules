@@ -21,7 +21,7 @@ service cloud.firestore {
 
     function validTask(d) {
       return d.keys().hasOnly(['title', 'cat', 'diff', 'daily', 'due', 'done', 'doneAt', 'doneHour', 'hours', 'created', 'updated',
-                               'repeat', 'days', 'monthDay', 'pin', 'paused', 'note', 'subs', 'subsDay'])
+                               'repeat', 'days', 'monthDay', 'pin', 'paused', 'note', 'subs', 'subsDay', 'time'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 140
         && d.cat in ['pessoal', 'profissional']
         && d.diff in [1, 2, 3]
@@ -39,6 +39,7 @@ service cloud.firestore {
         && (!('note' in d) || (d.note is string && d.note.size() <= 1000))
         && (!('subs' in d) || (d.subs is list && d.subs.size() <= 20))
         && (!('subsDay' in d) || d.subsDay == null || isDate(d.subsDay))
+        && (!('time' in d) || d.time == null || (d.time is string && d.time.size() == 5))
         && d.created is number;
     }
 

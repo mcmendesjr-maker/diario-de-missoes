@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Diário de Missões</title>
 <meta name="description" content="Organizador de rotina gamificado com XP, níveis, grupos e login Google.">
-<meta name="theme-color" content="#18202E">
+<meta name="theme-color" content="#071317">
+<meta name="color-scheme" content="dark">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -13,15 +14,15 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Missões">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
 <!-- ============ ENTRADA ============ -->
 <main class="login" id="loginScreen" hidden>
   <div class="login-card">
-    <div class="badge big"><div><small>NÍVEL</small><b>1</b></div></div>
+    <div class="logo" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 3l5.6 6.1 8.2-.9.9 8.2L45 22l-6.1 5.6.9 8.2-8.2.9L26 43l-5.6-6.1-8.2.9-.9-8.2L5 24l6.1-5.6-.9-8.2 8.2-.9z"/><path d="M15.5 24.5l6 6 11-12" fill="none" stroke="#071317" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     <h1>Diário de Missões</h1>
     <p>Organize sua rotina pessoal e profissional, ganhe XP a cada missão concluída, suba de nível e compare com seus amigos.</p>
     <button class="google" type="button" id="loginBtn">
@@ -38,31 +39,33 @@
 <!-- ============ APP ============ -->
 <div class="wrap" id="appScreen" hidden>
 
-  <section class="status" aria-label="Seu progresso">
-    <div class="top">
-      <div class="badge"><div><small>NÍVEL</small><b id="lvl">1</b></div></div>
-      <div class="who">
-        <h1 id="rank">Iniciante</h1>
-        <p id="sub">Conclua missões para ganhar XP e subir de nível.</p>
-      </div>
+  <section class="hero" aria-label="Seu progresso">
+    <div class="hero-top">
+      <span class="lvlpill">NÍVEL <b id="lvl">1</b></span>
+      <span class="rank" id="rank">Iniciante</span>
       <img class="avatar" id="avatar" alt="" referrerpolicy="no-referrer" hidden>
     </div>
-    <div>
-      <div class="bar"><i id="barFill"></i></div>
-      <div class="barmeta"><span class="mono" id="barNow">0 / 100 XP</span><span id="barNext">faltam 100 XP para o nível 2</span></div>
+    <div class="bignum">
+      <svg class="star" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 3l5.6 6.1 8.2-.9.9 8.2L45 22l-6.1 5.6.9 8.2-8.2.9L26 43l-5.6-6.1-8.2.9-.9-8.2L5 24l6.1-5.6-.9-8.2 8.2-.9z"/><path d="M24 14l2.9 6.2 6.8.7-5.1 4.6 1.4 6.7L24 28.8l-6 3.4 1.4-6.7-5.1-4.6 6.8-.7z" fill="#071317"/></svg>
+      <span id="sTotal">0</span><small>XP</small>
+    </div>
+    <p class="sub" id="sub">Conclua missões para ganhar XP e subir de nível.</p>
+    <div class="levelbar">
+      <div class="bar"><i id="barFill"></i><span class="mono" id="barNow">0 / 100</span></div>
+      <span class="barnext" id="barNext">faltam 100 XP para o nível 2</span>
     </div>
     <div class="stats">
-      <div class="stat"><b id="sToday">0</b><span>XP hoje</span></div>
-      <div class="stat"><b id="sStreak">0</b><span>dias seguidos</span><span class="shield" id="sShield"></span></div>
-      <div class="stat"><b id="sTotal">0</b><span>XP total</span></div>
+      <div class="stat"><span>XP hoje</span><b id="sToday">0</b></div>
+      <div class="stat"><span>Sequência</span><b id="sStreak">0</b><em class="shield" id="sShield"></em></div>
+      <div class="stat"><span>Conquistas</span><b id="sAch">0</b></div>
     </div>
   </section>
 
   <nav class="nav" role="group" aria-label="Seções">
-    <button type="button" data-view="missoes" aria-pressed="true">Missões</button>
-    <button type="button" data-view="progresso" aria-pressed="false">Progresso</button>
-    <button type="button" data-view="grupos" aria-pressed="false">Grupos</button>
-    <button type="button" data-view="conta" aria-pressed="false">Conta</button>
+    <button type="button" data-view="missoes" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.2 1.2L7 5M3.5 12l1.2 1.2L7 11M3.5 18l1.2 1.2L7 17"/></svg><span>Missões</span></button>
+    <button type="button" data-view="progresso" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Progresso</span></button>
+    <button type="button" data-view="grupos" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.6c2.6.2 4.4 1.9 5 4.9"/></svg><span>Grupos</span></button>
+    <button type="button" data-view="conta" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.2 4.1-6.5 8-6.5s7 2.3 8 6.5"/></svg><span>Conta</span></button>
   </nav>
 
   <div id="lvlBanner" hidden></div>
@@ -95,6 +98,10 @@
           <button type="button" data-rep="month" aria-pressed="false">Mensal</button>
         </div>
       </div>
+      <div class="opts">
+        <label class="chk timechk">Horário <input type="time" id="newTime" aria-label="Horário"></label>
+        <span class="hint">opcional</span>
+      </div>
       <div class="opts" id="dueRow">
         <div class="chips" role="group" aria-label="Prazo rápido">
           <button type="button" data-quick="0">Hoje</button>
@@ -114,7 +121,7 @@
 
     <div class="bar2">
       <div class="tabs" role="group" aria-label="Ver">
-        <button type="button" data-tab="hoje" aria-pressed="true">Hoje<span class="n" id="nHoje"></span></button>
+        <button type="button" data-tab="hoje" aria-pressed="true">Agenda<span class="n" id="nHoje"></span></button>
         <button type="button" data-tab="proximas" aria-pressed="false">Próximas<span class="n" id="nProx"></span></button>
         <button type="button" data-tab="feitas" aria-pressed="false">Concluídas<span class="n" id="nFeitas"></span></button>
       </div>
@@ -124,6 +131,7 @@
         <button type="button" data-filter="profissional" aria-pressed="false">Profissional</button>
       </div>
     </div>
+    <div class="daystrip" id="dayStrip" role="group" aria-label="Escolher dia"></div>
     <input type="search" class="search" id="histSearch" placeholder="Buscar nas concluídas" aria-label="Buscar nas concluídas" hidden>
     <ul class="list" id="list"></ul>
     <p class="note">Toque numa missão para editar, anotar, criar subtarefas e mais opções.</p>
@@ -179,6 +187,7 @@
         <span class="muted small" id="titleHint"></span>
       </div>
       <div class="rows">
+        <button type="button" class="row" id="notifyBtn"><b>Avisos no horário</b><span id="notifyHint">Mostra um aviso quando chega a hora de uma missão, com o app aberto</span></button>
         <button type="button" class="row" id="howBtn"><b>Como funciona o XP</b><span>Rever a explicação do primeiro acesso</span></button>
         <button type="button" class="row" id="exportBtn"><b>Baixar minhas missões</b><span>Planilha .csv que abre no Excel ou no Google Planilhas</span></button>
         <button type="button" class="row danger" id="wipeBtn"><b>Apagar todos os meus dados</b><span>Exclui missões, perfil e participação nos grupos</span></button>
@@ -189,7 +198,7 @@
       <h2>Privacidade</h2>
       <p class="muted">Suas missões ficam no Firebase, serviço do Google, e só a sua conta consegue lê-las. Nos grupos, os outros membros veem apenas seu nome, sua foto, seu nível e seu XP. O administrador do app tem acesso técnico ao banco de dados. Apagar seus dados nesta tela remove tudo o que foi salvo pelo app.</p>
     </div>
-    <p class="note">Diário de Missões · versão 4</p>
+    <p class="note">Diário de Missões · versão 5</p>
   </section>
 </div>
 
@@ -198,7 +207,7 @@
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="obTitle">
     <h2 id="obTitle">Boas-vindas ao Diário de Missões</h2>
     <ol class="how">
-      <li><b>Crie missões</b> pessoais ou profissionais. Marque "Todo dia" para hábitos.</li>
+      <li><b>Crie missões</b> pessoais ou profissionais, com horário se quiser. Use a repetição para hábitos.</li>
       <li><b>Escolha a dificuldade:</b> fácil vale 10 XP, média 25 e difícil 50.</li>
       <li><b>Conclua e ganhe XP.</b> Desmarcar devolve o XP, então vale ser honesto.</li>
       <li><b>Suba de nível.</b> O nível 2 pede 100 XP, e cada nível seguinte pede 50 a mais.</li>
@@ -211,6 +220,6 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script type="module" src="app.js?v=4"></script>
+<script type="module" src="app.js?v=5"></script>
 </body>
 </html>

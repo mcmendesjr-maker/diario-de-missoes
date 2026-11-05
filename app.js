@@ -3,8 +3,8 @@ import {
   db, login, logout, watchUser,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
-} from "./firebase.js?v=4";
-import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=4";
+} from "./firebase.js?v=5";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=5";
 
 /* =========================================================
    Regras de jogo
@@ -37,6 +37,7 @@ const form = { cat: "pessoal", diff: 1, rep: "once", days: [1, 2, 3, 4, 5] };
 let editing = null;           // rascunho da missão aberta
 let lastLevel = null, lastSync = "";
 let histQuery = "", histLimit = 14;
+let selDay = null;            // dia escolhido na faixa da Agenda (null = hoje)
 let groupUi = {};             // estado de botões dos grupos (confirmações, renomear)
 
 const $ = (id) => document.getElementById(id);
@@ -230,6 +231,23 @@ function buckets() {
   return { hoje, prox };
 }
 
+// Missões de um dia específico (faixa de dias da Agenda).
+function dayItems(D) {
+  const td = today(), out = [];
+  for (const [id, t] of tasks) {
+    let show;
+    if (t.daily) show = isScheduled(t, D) || isDoneOn(t, D);
+    else if (D === td) show = t.doneAt === td || (!t.doneAt && (!t.due || t.due <= td));
+    else show = t.doneAt === D || (!t.doneAt && t.due === D);
+    if (show) out.push({ id, ...t });
+  }
+  const done = (x) => isDoneOn(x, D) ? 1 : 0;
+  out.sort((a, b) => done(a) - done(b) || (a.time || "99").localeCompare(b.time || "99") || ((b.pin ? 1 : 0) - (a.pin ? 1 : 0)) || (b.diff - a.diff));
+  return out;
+}
+const nowHM = () => { const d = new Date(); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+const hmToMin = (hm) => { const [h, m] = hm.split(":").map(Number); return h * 60 + m; };
+
 // Todas as conclusões (uma por dia por missão), mais recentes primeiro.
 function history() {
   const out = [];
@@ -252,7 +270,7 @@ function render() {
   if (view === "missoes") renderTasks();
   if (view === "progresso") renderProgress(s, L);
   if (view === "grupos") renderGroups();
-  if (view === "conta") renderTitles();
+  if (view === "conta") { renderTitles(); syncNotifyRow(); }
   syncRanking(s, L);
   checkAchievements(s);
   checkShield(s);
@@ -262,14 +280,15 @@ function renderStatus(s, L) {
   $("lvl").textContent = L.lvl;
   $("rank").textContent = rankOf(L.lvl);
   $("barFill").style.width = (L.into / L.need * 100) + "%";
-  $("barNow").textContent = L.into + " / " + L.need + " XP";
+  $("barNow").textContent = L.into + " / " + L.need;
   $("barNext").textContent = "faltam " + (L.need - L.into) + " XP para o nível " + (L.lvl + 1);
   $("sToday").textContent = s.todayXp;
   $("sStreak").textContent = s.streak;
   const usedThisWeek = [...s.shields].some((d) => d >= weekStart());
-  $("sShield").textContent = usedThisWeek ? "escudo usado esta semana" : "escudo disponível";
+  $("sShield").textContent = usedThisWeek ? "escudo usado" : "escudo pronto";
   $("sShield").classList.toggle("used", usedThisWeek);
-  $("sTotal").textContent = s.total;
+  $("sTotal").textContent = s.total.toLocaleString("pt-BR");
+  $("sAch").textContent = ALL.filter((a) => profile?.ach?.[a.id]).length + "/" + TOTAL;
   const title = profile?.title && profile?.ach?.[profile.title] ? BY_ID[profile.title]?.title : null;
   const done = s.count ? s.count + (s.count === 1 ? " missão concluída" : " missões concluídas") : "Conclua missões para ganhar XP e subir de nível.";
   $("sub").textContent = title ? "“" + title + "” · " + done : done;
@@ -297,6 +316,8 @@ function renderTasks() {
   $("nProx").textContent = B.prox.length || "";
   $("nFeitas").textContent = "";
   $("histSearch").hidden = tab !== "feitas";
+  $("dayStrip").hidden = tab !== "hoje";
+  if (tab === "hoje") renderDayStrip();
   // Enquanto edita, a lista não é redesenhada para não perder o que está sendo digitado.
   if (editing && tasks.has(editing.id) && document.querySelector(".editbox")) return;
 
@@ -304,25 +325,46 @@ function renderTasks() {
   if (!loaded) { list.innerHTML = '<li class="empty"><b>Carregando missões…</b>Isso leva só um instante.</li>'; return; }
   if (tab === "feitas") { renderHistory(f); return; }
 
-  const rows = (tab === "hoje" ? B.hoje : B.prox).filter(f);
+  const D = selDay || today();
+  const rows = (tab === "hoje" ? dayItems(D) : B.prox).filter(f);
   // uma missão aberta para edição que não está nesta aba (ex.: concluída em outro dia) aparece no topo
   if (editing && tasks.has(editing.id) && !rows.some((r) => r.id === editing.id)) rows.unshift({ id: editing.id, ...tasks.get(editing.id) });
   if (!rows.length) {
     const msg = tasks.size === 0
       ? '<b>Nenhuma missão ainda</b>Escreva a primeira lá em cima, escolha se é pessoal ou profissional e a dificuldade.<br><button type="button" class="ghost" id="seed">Começar com missões de exemplo</button>'
-      : tab === "hoje" ? "<b>Tudo em dia</b>Nada pendente para hoje" + (filter !== "todas" ? " nesse filtro" : "") + "."
+      : tab === "hoje" ? (D === today() ? "<b>Tudo em dia</b>Nada pendente para hoje" + (filter !== "todas" ? " nesse filtro" : "") + "." : "<b>Nada neste dia</b>Nenhuma missão marcada para " + esc(nice(D)) + ".")
       : "<b>Sem missões futuras</b>Missões com prazo depois de hoje e repetições fora de hoje aparecem aqui.";
     list.innerHTML = '<li class="empty">' + msg + "</li>";
     const sb = $("seed"); if (sb) sb.onclick = seed;
     return;
   }
-  list.innerHTML = rows.map((t) => editing && editing.id === t.id ? editRow(t) : taskRow(t)).join("");
+  if (tab === "hoje") {
+    const timed = rows.filter((t) => t.time), untimed = rows.filter((t) => !t.time);
+    list.innerHTML = timed.map((t) => editing && editing.id === t.id ? editRow(t) : taskRow(t, { day: D, tl: true })).join("") +
+      (timed.length && untimed.length ? '<li class="dayhead"><b>Sem horário</b><span></span></li>' : "") +
+      untimed.map((t) => editing && editing.id === t.id ? editRow(t) : taskRow(t, { day: D })).join("");
+  } else list.innerHTML = rows.map((t) => editing && editing.id === t.id ? editRow(t) : taskRow(t)).join("");
 }
+
+function renderDayStrip() {
+  const td = today(), D = selDay || td, box = $("dayStrip");
+  const days = []; for (let i = -3; i <= 3; i++) days.push(addDays(td, i));
+  box.innerHTML = days.map((d) => {
+    const n = dayItems(d).filter((t) => !isDoneOn(t, d)).length;
+    return '<button type="button" data-day="' + d + '" aria-pressed="' + (d === D) + '" class="' + (d === td ? "today" : "") + (n ? " has" : "") + '"><b>' + Number(d.slice(8)) + "</b><span>" + (d === td ? "hoje" : WD[weekday(d)]) + "</span></button>";
+  }).join("");
+}
+$("dayStrip").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-day]"); if (!b) return;
+  selDay = b.dataset.day === today() ? null : b.dataset.day; editing = null; renderTasks();
+});
 
 function taskRow(t, opts = {}) {
   const td = today();
   const date = opts.date || td;
-  const done = opts.date ? true : isDoneToday(t);
+  const day = opts.day || td;
+  const done = opts.date ? true : opts.day ? isDoneOn(t, day) : isDoneToday(t);
+  const canToggle = !!opts.date || day === td || (day === addDays(td, -1));
   let when = "";
   if (opts.date) when = "<span>" + (t.daily ? "repetição" : "") + "</span>";
   else if (t.daily) {
@@ -339,11 +381,24 @@ function taskRow(t, opts = {}) {
   const subsHtml = subsArr.length && !opts.date
     ? '<ul class="subs">' + subsArr.map((s, i) => '<li><label><input type="checkbox" data-act="sub" data-i="' + i + '"' + (subsDone[i] ? " checked" : "") + '><span>' + esc(s.t) + "</span></label></li>").join("") + "</ul>"
     : "";
-  const meta = '<span class="tag ' + esc(t.cat) + '">' + (t.cat === "profissional" ? "Profissional" : "Pessoal") + "</span><span>" + DIFF[t.diff] + "</span>" + when +
+  let state = "";
+  if (!opts.date) {
+    if (done) state = '<span class="state done">Concluída</span>';
+    else if (day < td || (day === td && !t.daily && t.due && t.due < td)) state = '<span class="state late">Atrasada</span>';
+    else if (day === td && t.time) {
+      const diffMin = hmToMin(t.time) - hmToMin(nowHM());
+      if (diffMin <= 0 && diffMin > -90) state = '<span class="state now">Agora</span>';
+      else if (diffMin <= -90) state = '<span class="state late">Passou da hora</span>';
+    }
+  }
+  const meta = state + '<span class="tag ' + esc(t.cat) + '">' + (t.cat === "profissional" ? "Profissional" : "Pessoal") + "</span><span>" + DIFF[t.diff] + "</span>" + when +
     (subsArr.length ? '<span class="pill">' + subsDone.filter(Boolean).length + "/" + subsArr.length + "</span>" : "") +
-    (t.note ? '<span class="pill" title="Tem nota">nota</span>' : "");
-  return '<li class="task' + (done ? " done" : "") + (t.pin ? " pinned" : "") + (t.paused ? " is-paused" : "") + '" data-id="' + esc(t.id) + '"' + (opts.date ? ' data-date="' + date + '"' : "") + ">" +
-    '<button type="button" class="check" data-act="toggle" aria-label="' + (done ? "Desmarcar" : "Concluir") + " " + esc(t.title) + '"' + (t.paused && !opts.date ? " disabled" : "") + ">" + CHECK + "</button>" +
+    (t.note ? '<span class="pill" title="Tem nota">nota</span>' : "") +
+    (t.time && !opts.tl ? '<span class="pill mono">' + esc(t.time) + "</span>" : "");
+  const dataDate = opts.date ? date : (opts.day && opts.day !== td ? opts.day : null);
+  return '<li class="task cat-' + esc(t.cat) + (done ? " done" : "") + (t.pin ? " pinned" : "") + (t.paused ? " is-paused" : "") + '" data-id="' + esc(t.id) + '"' + (dataDate ? ' data-date="' + dataDate + '"' : "") + ">" +
+    (opts.tl ? '<span class="tl">' + esc(t.time) + "</span>" : "") +
+    '<button type="button" class="check" data-act="toggle" aria-label="' + (done ? "Desmarcar" : "Concluir") + " " + esc(t.title) + '"' + ((t.paused && !opts.date) || !canToggle ? " disabled" : "") + ">" + CHECK + "</button>" +
     '<div class="body"><div class="ttl edit" data-act="open" role="button" tabindex="0">' + esc(t.title) + '</div><div class="meta">' + meta + "</div>" + subsHtml + "</div>" +
     '<span class="xp">+' + (XP[t.diff] || 10) + "</span>" +
     (opts.date ? "" : '<button type="button" class="pinbtn" data-act="pin" aria-pressed="' + !!t.pin + '" aria-label="' + (t.pin ? "Desafixar" : "Fixar no topo") + '">' + STAR + "</button>") +
@@ -394,6 +449,7 @@ function editRow(t) {
         (rep === "month" ? '<div class="opts"><label class="chk">Todo dia <input type="number" id="editMonthDay" min="1" max="31" value="' + e.monthDay + '" aria-label="Dia do mês"> de cada mês</label></div>' : "")
       : '<div class="opts"><div class="chips">' + [["0", "Hoje"], ["1", "Amanhã"], ["fri", "Sexta"], ["none", "Sem prazo"]].map(([q, l]) => '<button type="button" data-equick="' + q + '">' + l + "</button>").join("") + "</div>" +
         '<input type="date" id="editDue" value="' + esc(e.due || "") + '" aria-label="Prazo"></div>') +
+    '<div class="opts"><label class="chk">Horário <input type="time" id="editTime" value="' + esc(e.time || "") + '" aria-label="Horário"></label>' + (e.time ? '<button type="button" class="ghost" style="margin:0;padding:5px 10px" data-act="cleartime">Sem horário</button>' : "") + "</div>" +
     '<label class="fl" for="editNote">Nota</label>' +
     '<textarea id="editNote" maxlength="1000" rows="2" placeholder="Detalhes, links, observações">' + esc(e.note) + "</textarea>" +
     (e.note && /https?:\/\//.test(e.note) ? '<p class="notepreview">' + linkify(e.note) + "</p>" : "") +
@@ -404,6 +460,7 @@ function editRow(t) {
       '<button type="button" data-act="pin">' + (t.pin ? "Desafixar" : "Fixar no topo") + "</button>" +
       (canYesterday ? '<button type="button" data-act="yesterday">Marcar como feita ontem</button>' : "") +
       (t.daily ? '<button type="button" data-act="pause">' + (t.paused ? "Retomar" : "Pausar") + "</button>" : "") +
+      '<a class="gcal" href="' + esc(gcalUrl({ ...t, title: e.title, time: e.time, due: e.due, note: e.note, repeat: e.rep, days: e.days, monthDay: e.monthDay })) + '" target="_blank" rel="noopener">Adicionar ao Google Agenda</a>' +
       '<button type="button" class="danger" data-act="del">Excluir</button>' +
     "</div>" +
     '<div class="acts"><button type="button" class="cancel" data-act="ecancel">Fechar</button><button type="button" class="save" data-act="esave">Salvar</button></div>' +
@@ -431,25 +488,28 @@ function renderProgress(s, L) {
     const pct = next ? Math.min(100, Math.max(0, (val - prevGoal) / (next - prevGoal) * 100)) : 100;
     const medal = reached ? TIER_KEYS[reached - 1] : "none";
     const pips = t.goals.map((g, i) => '<span class="pip ' + (ach[t.id + "-" + (i + 1)] ? TIER_KEYS[i] : "") + '" title="' + TIER_NAMES[i] + ": " + fmt(g) + '"></span>').join("");
-    return '<li class="trail"><div class="medal ' + medal + '">' + esc(t.icon) + "</div>" +
-      '<div class="tbody"><div class="thead"><b>' + esc(t.name) + (reached ? ' <span class="tier ' + medal + '">' + TIER_NAMES[reached - 1] + "</span>" : "") + '</b><span class="pips">' + pips + "</span></div>" +
-      '<div class="tbar"><i class="' + (next ? TIER_KEYS[reached] : "diamante") + '" style="width:' + pct + '%"></i></div>' +
-      '<span class="tmeta">' + (next ? fmt(Math.min(val, next)) + " / " + fmt(next) + " " + esc(t.unit) + " · próximo: " + TIER_NAMES[reached] + " +" + TIER_XP[reached] + " XP" : "Trilha completa · " + fmt(val) + " " + esc(t.unit)) + "</span></div></li>";
+    return '<li class="trail"><div class="thead"><span class="tier ' + medal + '">' + (reached ? TIER_NAMES[reached - 1] : "A caminho") + '</span><span class="tprog">' + (next ? fmt(Math.min(val, next)) + " / " + fmt(next) : "completa") + "</span></div>" +
+      '<div class="medal ' + medal + '">' + esc(t.icon) + "</div>" +
+      '<div class="tbody"><b class="tname">' + esc(t.name) + "</b>" +
+      '<div class="tbar"><i style="width:' + pct + '%"></i></div>' +
+      '<span class="tmeta">' + esc(t.unit) + (next ? " · próximo: " + TIER_NAMES[reached] + " +" + TIER_XP[reached] + " XP" : "") + "</span>" +
+      '<span class="pips">' + pips + "</span></div></li>";
   }).join("");
 
   $("singles").innerHTML = SINGLES.map((x) => {
     const on = !!ach[x.id];
-    return '<div class="a' + (on ? " on" : "") + '"><div class="ic">★</div><div><b>' + esc(x.name) + "</b><span>" + esc(x.desc) + "</span>" +
-      '<span class="xpline">+50 XP' + (x.title ? " · título “" + esc(x.title) + "”" : "") + (on ? " · " + when(x.id) : "") + "</span></div></div>";
+    return '<div class="a' + (on ? " on" : "") + '"><div class="band"><span>' + (on ? "Completa" : "Especial") + "</span><span>+50 XP</span></div>" +
+      '<div class="abody"><b>' + esc(x.name) + "</b><span>" + esc(x.desc) + "</span>" +
+      '<span class="xpline">' + (x.title ? "Título “" + esc(x.title) + "”" : "") + (on ? (x.title ? " · " : "") + when(x.id) : "") + "</span></div></div>";
   }).join("");
 
   $("secrets").innerHTML = SECRETS.map((x) => {
     const on = !!ach[x.id];
-    return '<div class="a secret' + (on ? " on" : "") + '"><div class="ic">' + (on ? "✦" : "?") + "</div><div><b>" + (on ? esc(x.name) : "???") + "</b><span>" + esc(on ? x.desc : x.hint) + "</span>" +
-      '<span class="xpline">+100 XP' + (on ? " · título “" + esc(x.title) + "” · " + when(x.id) : "") + "</span></div></div>";
+    return '<div class="a secret' + (on ? " on" : "") + '"><div class="band"><span>' + (on ? "Desvendada" : "Secreta") + "</span><span>+100 XP</span></div>" +
+      '<div class="abody"><b>' + (on ? esc(x.name) : "???") + "</b><span>" + esc(on ? x.desc : x.hint) + "</span>" +
+      '<span class="xpline">' + (on ? "Título “" + esc(x.title) + "” · " + when(x.id) : "") + "</span></div></div>";
   }).join("");
 }
-
 function renderGroups() {
   const box = $("groups");
   const codes = profile?.groups || [];
@@ -514,6 +574,76 @@ function celebrate(r, xp) {
 }
 
 /* =========================================================
+   Google Agenda e avisos no horário
+   ========================================================= */
+const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo"; } catch (e) { return "America/Sao_Paulo"; } })();
+const BYDAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+function gcalUrl(t) {
+  const td = today();
+  const r = t.daily ? (t.repeat || "daily") : "once";
+  let date = t.daily ? (isScheduled({ ...t, paused: false }, td) ? td : (nextScheduled({ ...t, paused: false }) || td)) : (t.due || td);
+  const compact = (d) => d.replace(/-/g, "");
+  let dates;
+  if (t.time && /^\d{2}:\d{2}$/.test(t.time)) {
+    const start = hmToMin(t.time), end = start + 30;
+    const hm = (m) => String(Math.floor(m / 60) % 24).padStart(2, "0") + String(m % 60).padStart(2, "0") + "00";
+    const endDate = end >= 1440 ? addDays(date, 1) : date;
+    dates = compact(date) + "T" + hm(start) + "/" + compact(endDate) + "T" + hm(end);
+  } else dates = compact(date) + "/" + compact(addDays(date, 1));
+  const p = new URLSearchParams({ action: "TEMPLATE", text: t.title || "Missão", dates, ctz: TZ,
+    details: (t.note ? t.note + "\n\n" : "") + "Missão do Diário de Missões (" + (XP[t.diff] || 10) + " XP)." });
+  if (r === "daily") p.set("recur", "RRULE:FREQ=DAILY");
+  if (r === "week") p.set("recur", "RRULE:FREQ=WEEKLY;BYDAY=" + (t.days || []).map((d) => BYDAY[d]).join(","));
+  if (r === "month") p.set("recur", "RRULE:FREQ=MONTHLY;BYMONTHDAY=" + (t.monthDay || 1));
+  return "https://calendar.google.com/calendar/render?" + p.toString();
+}
+
+const NOTIFY_KEY = "missoes.notify";
+let notifyOn = false;
+try { notifyOn = localStorage.getItem(NOTIFY_KEY) === "1"; } catch (e) { }
+const notified = new Set();
+function syncNotifyRow() {
+  const row = $("notifyBtn"); if (!row) return;
+  const perm = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+  row.classList.toggle("on", notifyOn);
+  row.querySelector("b").textContent = "Avisos no horário: " + (notifyOn ? "ligados" : "desligados");
+  $("notifyHint").textContent = perm === "unsupported" ? "Este navegador não mostra notificações. O app ainda avisa na tela quando estiver aberto."
+    : perm === "denied" ? "As notificações estão bloqueadas nas configurações do navegador. O app avisa só na tela."
+    : "Avisa quando chega a hora de uma missão, com o app aberto. Para lembrete com o app fechado, use o Google Agenda na missão.";
+}
+$("notifyBtn").addEventListener("click", async () => {
+  if (!notifyOn && typeof Notification !== "undefined" && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch (e) { }
+  }
+  notifyOn = !notifyOn;
+  try { localStorage.setItem(NOTIFY_KEY, notifyOn ? "1" : "0"); } catch (e) { }
+  syncNotifyRow();
+  toast(notifyOn ? "Avisos no horário ligados" : "Avisos no horário desligados");
+});
+async function showReminder(t) {
+  const body = (t.cat === "profissional" ? "Profissional" : "Pessoal") + " · +" + (XP[t.diff] || 10) + " XP";
+  toast("Agora: " + esc(t.title));
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) await reg.showNotification(t.title, { body, icon: "icons/icon-192.png", tag: "missao-" + t.id });
+    else new Notification(t.title, { body, icon: "icons/icon-192.png" });
+  } catch (e) { }
+}
+function reminderTick() {
+  if (!notifyOn || !uid || !loaded) return;
+  const td = today(), now = hmToMin(nowHM());
+  for (const t of dayItems(td)) {
+    if (!t.time || isDoneOn(t, td) || t.paused) continue;
+    const key = t.id + "@" + td + "@" + t.time;
+    const diff = now - hmToMin(t.time);
+    if (diff >= 0 && diff <= 2 && !notified.has(key)) { notified.add(key); showReminder(t); }
+  }
+}
+setInterval(reminderTick, 20000);
+setInterval(() => { if (uid && loaded && view === "missoes" && !editing) renderTasks(); }, 60000); // atualiza "Agora"
+
+/* =========================================================
    Gravação de missões
    ========================================================= */
 const tasksCol = () => collection(db, "users", uid, "tasks");
@@ -550,7 +680,8 @@ $("addForm").addEventListener("submit", (e) => {
   e.preventDefault();
   if (!loaded) return;
   const title = $("newTitle").value.trim(); if (!title) { $("newTitle").focus(); return; }
-  const data = { title, cat: form.cat, diff: form.diff, daily: form.rep !== "once", due: null, created: Date.now() };
+  const tm = $("newTime").value;
+  const data = { title, cat: form.cat, diff: form.diff, daily: form.rep !== "once", due: null, created: Date.now(), time: /^\d{2}:\d{2}$/.test(tm) ? tm : null };
   if (form.rep === "once") { data.due = $("newDue").value || null; data.doneAt = null; }
   else {
     data.done = []; data.repeat = form.rep;
@@ -558,7 +689,7 @@ $("addForm").addEventListener("submit", (e) => {
     if (form.rep === "month") data.monthDay = Math.min(31, Math.max(1, +$("newMonthDay").value || 1));
   }
   put(newId(), data);
-  $("newTitle").value = ""; $("newDue").value = "";
+  $("newTitle").value = ""; $("newDue").value = ""; $("newTime").value = "";
   if (form.rep === "once" && data.due && data.due > today()) toast("Missão agendada para " + esc(nice(data.due)));
   else if (form.rep !== "once" && !isScheduled(data, today())) toast("Repetição criada. Próxima: " + esc(nice(nextScheduled(data))));
 });
@@ -589,11 +720,12 @@ function openEditor(id) {
   editing = {
     id, title: t.title, cat: t.cat, diff: t.diff, due: t.due || "",
     rep: repeatOf(t) === "once" ? "daily" : repeatOf(t), days: t.days ? [...t.days] : [1, 2, 3, 4, 5], monthDay: t.monthDay || 1,
-    note: t.note || "", subs: (t.subs || []).map((s, i) => ({ t: s.t, d: subsDoneFor(t)[i] })),
+    note: t.note || "", time: t.time || "", subs: (t.subs || []).map((s, i) => ({ t: s.t, d: subsDoneFor(t)[i] })),
   };
   // abre na aba em que a missão aparece (ou em Hoje, se ela não aparece em nenhuma)
   const B = buckets();
-  const target = B.prox.some((x) => x.id === id) && !B.hoje.some((x) => x.id === id) ? "proximas" : "hoje";
+  const inDay = dayItems(selDay || today()).some((x) => x.id === id);
+  const target = tab === "hoje" && inDay ? "hoje" : B.prox.some((x) => x.id === id) && !B.hoje.some((x) => x.id === id) ? "proximas" : "hoje";
   if (tab !== target) { tab = target; document.querySelectorAll("[data-tab]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.tab === target)); }
   renderTasks();
   const inp = $("editTitle"); if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
@@ -645,6 +777,7 @@ $("list").addEventListener("click", (e) => {
   if (act === "ecancel") { editing = null; renderTasks(); return; }
   if (act === "esave") { saveEdit(); return; }
   if (act === "addsub") { addSubFromInput(); return; }
+  if (act === "cleartime") { editing.time = ""; rerenderEditor(); return; }
   if (act === "toggle") { toggleDone(id, li.dataset.date, btn); return; }
   if (act === "sub") {
     const i = +btn.dataset.i, done = subsDoneFor(t);
@@ -690,6 +823,7 @@ $("list").addEventListener("input", (e) => {
   if (el.id === "editTitle") editing.title = el.value;
   else if (el.id === "editDue") editing.due = el.value;
   else if (el.id === "editNote") editing.note = el.value;
+  else if (el.id === "editTime") editing.time = el.value;
   else if (el.id === "editMonthDay") editing.monthDay = Math.min(31, Math.max(1, +el.value || 1));
   else if (el.dataset.esubt !== undefined) editing.subs[+el.dataset.esubt].t = el.value;
   else if (el.dataset.esubd !== undefined) editing.subs[+el.dataset.esubd].d = el.checked;
@@ -710,7 +844,7 @@ function saveEdit() {
   const id = editing.id, t = tasks.get(id);
   if (!t) { editing = null; renderTasks(); return; }
   const title = editing.title.trim(); if (!title) { $("editTitle").focus(); return; }
-  const n = { ...t, title, cat: editing.cat, diff: editing.diff, updated: Date.now(), note: editing.note.trim().slice(0, 1000) };
+  const n = { ...t, title, cat: editing.cat, diff: editing.diff, updated: Date.now(), note: editing.note.trim().slice(0, 1000), time: /^\d{2}:\d{2}$/.test(editing.time) ? editing.time : null };
   const subs = editing.subs.filter((s) => s.t.trim()).map((s) => ({ t: s.t.trim().slice(0, 100), d: !!s.d }));
   n.subs = subs; n.subsDay = today();
   if (t.daily) {
@@ -728,9 +862,9 @@ function seed() {
   const td = today();
   const ex = [
     { title: "Beber 2 litros de água", cat: "pessoal", diff: 1, daily: true, repeat: "daily", done: [] },
-    { title: "Treino na academia", cat: "pessoal", diff: 2, daily: true, repeat: "week", days: [1, 3, 5], done: [] },
-    { title: "Planejar as prioridades do dia", cat: "profissional", diff: 1, daily: true, repeat: "week", days: [1, 2, 3, 4, 5], done: [] },
-    { title: "Responder e-mails pendentes", cat: "profissional", diff: 2, daily: false, due: td, doneAt: null, pin: true },
+    { title: "Treino na academia", cat: "pessoal", diff: 2, daily: true, repeat: "week", days: [1, 3, 5], done: [], time: "18:30" },
+    { title: "Planejar as prioridades do dia", cat: "profissional", diff: 1, daily: true, repeat: "week", days: [1, 2, 3, 4, 5], done: [], time: "08:30" },
+    { title: "Responder e-mails pendentes", cat: "profissional", diff: 2, daily: false, due: td, doneAt: null, pin: true, time: "10:00" },
     { title: "Finalizar a apresentação do projeto", cat: "profissional", diff: 3, daily: false, due: addDays(td, 2), doneAt: null,
       subs: [{ t: "Reunir os números", d: false }, { t: "Montar os slides", d: false }, { t: "Revisar com a equipe", d: false }] },
   ];
