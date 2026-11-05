@@ -49,10 +49,10 @@ export const LIPS = {
 };
 export const BEARDS = {
   nenhuma: ["Sem barba", () => ""],
-  rala: ["Barba rala", (c) => `<path d="M66 108Q70 140 104 142Q142 140 146 108Q140 128 104 132Q72 128 66 108Z" fill="${c}" opacity=".35"/>`],
-  cheia: ["Barba cheia", (c) => `<path d="M64 100Q60 150 104 152Q148 150 146 100Q142 122 122 122Q104 130 86 122Q68 122 64 100Z" fill="${c}" ${stroke}/><path d="M88 116Q104 106 120 116Q104 126 88 116Z" fill="#B87A6A" opacity=".0"/>`],
-  cavanhaque: ["Cavanhaque", (c) => `<path d="M90 120Q104 148 118 120Q104 128 90 120Z" fill="${c}" ${st(4)}/><path d="M86 106Q96 100 104 105Q112 100 122 106Q112 111 104 108Q96 111 86 106Z" fill="${c}" ${st(3.5)}/>`],
-  bigode: ["Bigode", (c) => `<path d="M84 107Q95 98 104 105Q113 98 124 107Q114 113 104 109Q94 113 84 107Z" fill="${c}" ${st(4)}/>`],
+  rala: ["Barba rala", (c) => `<path d="M64 104Q66 138 98 141Q128 140 144 112L146 104Q140 126 112 128Q96 132 82 126Q68 120 64 104Z" fill="${c}" opacity=".32"/><path d="M84 106Q91 102 97 105Q103 102 110 106" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" opacity=".45"/>`],
+  cheia: ["Barba cheia", (c) => `<path d="M63 98Q60 146 98 150Q138 150 146 104L146 98Q140 120 118 120Q108 126 97 126Q86 126 78 120Q66 116 63 98Z" fill="${c}" ${stroke}/><path d="M83 108Q91 101 97 106Q103 101 111 108Q104 113 97 110Q90 113 83 108Z" fill="${c}" ${st(3.5)}/>`],
+  cavanhaque: ["Cavanhaque", (c) => `<path d="M88 122Q97 146 106 122Q97 128 88 122Z" fill="${c}" ${st(4)}/><path d="M83 107Q91 101 97 106Q103 101 111 107Q104 112 97 109Q90 112 83 107Z" fill="${c}" ${st(3.5)}/>`],
+  bigode: ["Bigode", (c) => `<path d="M81 108Q90 99 97 105Q104 99 113 108Q105 113 97 109Q89 113 81 108Z" fill="${c}" ${st(4)}/>`],
 };
 
 /* ---------- cabelo: [nome, atrás da cabeça, por cima] ---------- */
@@ -88,7 +88,7 @@ export const BODIES = {
     `<path d="M80 150Q84 168 102 168Q120 168 124 150" fill="none" ${stroke}/><path d="M64 176L62 204M140 176L142 204" ${stroke}/><path d="M94 168v14M110 168v14" ${st(4)}/>`],
   camiseta: ["Camiseta", (c) => `<path d="M38 204Q40 164 80 150Q100 160 124 150Q164 164 166 204Z" fill="${c}" ${stroke}/><path d="M82 151Q102 166 122 151" fill="none" ${st(4)}/>`],
   camisa: ["Camisa social", (c) => `<path d="${TORSO}" fill="${c}" ${stroke}/><path d="M80 146L92 168L102 152L112 168L124 146" fill="${c}" ${st(5)}/><path d="M102 156V204" ${st(4)}/><circle cx="108" cy="172" r="2.5" fill="${INK}"/><circle cx="108" cy="186" r="2.5" fill="${INK}"/><circle cx="108" cy="200" r="2.5" fill="${INK}"/>`],
-  blusa: ["Blusa", (c) => `<path d="M36 204Q38 162 74 152Q100 176 130 152Q166 162 168 204Z" fill="${c}" ${stroke}/><path d="M74 152Q100 182 130 152" fill="none" ${st(4)}/><path d="M50 168q6 6 12 0q6 6 12 0M130 168q6 6 12 0q6 6 12 0" fill="none" stroke="#fff" stroke-width="3" opacity=".7" stroke-linecap="round"/>`],
+  blusa: ["Blusa", (c) => `<path d="M36 204Q38 162 74 152Q100 176 130 152Q166 162 168 204Z" fill="${c}" ${stroke}/><path d="M74 152Q100 182 130 152" fill="none" ${st(4)}/><path d="M58 172Q62 160 74 154M146 172Q142 160 130 154" fill="none" ${st(4)}/><circle cx="102" cy="172" r="3.5" fill="#fff" ${st(2.5)}/>`],
   regata: ["Regata", (c, s) => `<path d="${TORSO}" fill="${s}" ${stroke}/><path d="M66 204L66 156Q74 152 78 152Q86 172 102 172Q118 172 126 152Q132 152 138 156L138 204Z" fill="${c}" ${stroke}/>`],
   vestido: ["Vestido", (c, s) => `<path d="${TORSO}" fill="${s}" ${stroke}/><path d="M62 204L66 170Q84 164 102 176Q120 164 138 170L142 204Z" fill="${c}" ${stroke}/><path d="M74 168L80 150M130 168L124 150" ${st(4)}/><circle cx="102" cy="176" r="4" fill="#fff" ${st(2.5)}/>`],
   cropped: ["Cropped", (c, s) => `<path d="${TORSO}" fill="${s}" ${stroke}/><path d="M38 192Q40 162 78 150Q100 162 126 150Q164 162 166 192Z" fill="${c}" ${stroke}/><path d="M82 151Q102 164 122 151" fill="none" ${st(4)}/><circle cx="102" cy="200" r="2" fill="${INK}" opacity=".5"/>`],
@@ -150,7 +150,7 @@ export const MOODS = {
     extra: `<path d="M166 62h12M170 50l8-6M170 74l8 6" ${st(3.5)}/>` },
   estressado: { name: "Dia puxado", ring: "#FF7A6B",
     face: () => `<path d="M76 84l15-6M103 78l15 6" fill="none" ${st(4.5)}/>`,
-    mouth: (c) => `<path d="M86 116q4-5 8 0t8 0t8 0t8 0" fill="none" stroke="${c}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+    mouth: (c) => `<path d="M82 116q4-5 8 0t8 0t8 0t8 0" fill="none" stroke="${c}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>`,
     extra: `<path d="M136 52q8 10 0 16q-8-6 0-16z" fill="#8FD8FF" ${st(3)}/><path d="M40 46l8 6M34 60h10M42 72l8-4" ${st(3.5)}/>` },
 };
 
@@ -189,15 +189,17 @@ export function avatarSvg(raw, { size = 120, cls = "avsvg", title = "", mood = n
   const hideHair = item[2];
   const lipC = LIPS[a.lips][1];
   const mouthC = lipC || INK;
-  let mouth = md ? md.mouth(mouthC) : MOUTHS[a.mouth][1](mouthC);
-  if (!md && lipC && a.mouth === "nenhuma") mouth = `<path d="M92 112q5-4 10 0q5-4 10 0q-5 7-10 7t-10-7z" fill="${lipC}" ${st(3)}/>`;
+  // No humor tranquilo vale a boca escolhida; nos outros, a boca mostra a emoção.
+  const useOwnMouth = !md || (mood === "calmo" && a.mouth !== "nenhuma");
+  let mouth = useOwnMouth ? MOUTHS[a.mouth][1](mouthC) : md.mouth(mouthC);
+  if (useOwnMouth && lipC && a.mouth === "nenhuma") mouth = `<path d="M87 112q5-4 10 0q5-4 10 0q-5 7-10 7t-10-7z" fill="${lipC}" ${st(3)}/>`;
   return `<svg class="${cls}" viewBox="0 0 200 200" width="${size}" height="${size}" role="img" aria-label="${title || "Avatar"}">` +
     `<defs><clipPath id="${clip}"><circle cx="100" cy="100" r="${frame ? 90 : 100}"/></clipPath></defs>` +
     (frame ? `<circle cx="100" cy="100" r="99" fill="${frame}"/><circle cx="100" cy="100" r="92" fill="none" stroke="${INK}" stroke-width="4"/>` : "") +
     `<g clip-path="url(#${clip})">` +
       `<rect width="200" height="200" fill="${BG_COLORS[a.bg]}"/>` +
       (md ? md.extra : "") +
-      `<g transform="translate(9 24) scale(.91)">` +
+      `<g transform="translate(15 12) scale(.85)">` +
         (hideHair || !hair[1] ? "" : hair[1](hc)) +
         BODIES[a.body][1](bc, skin) + NECK(skin) + HEAD(skin) +
         EARRINGS[a.ears][1] +

@@ -3,10 +3,10 @@ import {
   db, login, logout, watchUser,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   arrayUnion, arrayRemove, writeBatch
-} from "./firebase.js?v=8";
-import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=8";
-import { ICONS, iconSvg, TAG_COLORS, tagColor, burst, confetti, countTo } from "./look.js?v=8";
-import { avatarSvg, cleanAvatar, DEFAULT_AVATAR, SKINS, HAIR_COLORS, CLOTH_COLORS, BG_COLORS, HAIRS, EYES, MOUTHS, LASHES, LIPS, BEARDS, BODIES, GLASSES, EARRINGS, ITEMS, FRAMES, MOODS, PRESETS } from "./avatar.js?v=8";
+} from "./firebase.js?v=9";
+import { TRAILS, SINGLES, SECRETS, ALL, BY_ID, TOTAL, TIER_NAMES, TIER_KEYS, TIER_XP, eligible } from "./achievements.js?v=9";
+import { ICONS, iconSvg, TAG_COLORS, tagColor, burst, confetti, countTo } from "./look.js?v=9";
+import { avatarSvg, cleanAvatar, DEFAULT_AVATAR, SKINS, HAIR_COLORS, CLOTH_COLORS, BG_COLORS, HAIRS, EYES, MOUTHS, LASHES, LIPS, BEARDS, BODIES, GLASSES, EARRINGS, ITEMS, FRAMES, MOODS, PRESETS } from "./avatar.js?v=9";
 
 /* =========================================================
    Regras de jogo
@@ -1224,7 +1224,7 @@ function renderAvatarEditor() {
   if (avTab === "estilo") html = '<p class="muted">Escolha um ponto de partida. Depois você ajusta cada peça como quiser — todas as peças valem para qualquer estilo.</p><div class="avgrid presets">' +
     Object.entries(PRESETS).map(([k, [name, p]]) => '<button type="button" class="avopt" data-avpreset="' + k + '">' + avatarSvg({ ...avDraft, ...p }, { size: 64 }) + "<span>" + name + "</span></button>").join("") + "</div>";
   if (avTab === "rosto") html = swatches("skin", SKINS, "Tom de pele") + '<span class="fl">Olhos</span>' + optGrid("eyes", Object.entries(EYES)) + '<span class="fl">Cílios</span>' + optGrid("lashes", Object.entries(LASHES)) +
-    '<span class="fl">Boca</span><p class="hint">No painel, a boca e as sobrancelhas mudam com o humor do dia.</p>' + optGrid("mouth", Object.entries(MOUTHS)) + '<span class="fl">Batom</span>' + optGrid("lips", Object.entries(LIPS));
+    '<span class="fl">Boca</span><p class="hint">Esta é a boca do humor tranquilo. Nos dias movimentados e puxados, a expressão muda sozinha.</p>' + optGrid("mouth", Object.entries(MOUTHS)) + '<span class="fl">Batom</span>' + optGrid("lips", Object.entries(LIPS));
   if (avTab === "barba") html = '<span class="fl">Barba e bigode</span><p class="hint">A barba usa a cor do cabelo.</p>' + optGrid("beard", Object.entries(BEARDS));
   if (avTab === "cabelo") html = swatches("hairC", HAIR_COLORS, "Cor do cabelo") + '<span class="fl">Estilo</span>' + optGrid("hair", Object.entries(HAIRS));
   if (avTab === "roupa") html = swatches("bodyC", CLOTH_COLORS, "Cor da roupa") + '<span class="fl">Roupa</span>' + optGrid("body", Object.entries(BODIES));
@@ -1251,6 +1251,11 @@ $("avOpts").addEventListener("click", (e) => {
   const b = e.target.closest("[data-avfield]"); if (!b) return;
   if (b.dataset.locked) { toast("Para liberar: " + esc(b.dataset.locked)); return; }
   avDraft[b.dataset.avfield] = b.dataset.num ? +b.dataset.avval : b.dataset.avval;
+  // ao trocar boca ou batom, a prévia volta para o humor tranquilo, que mostra a boca escolhida
+  if (b.dataset.avfield === "mouth" || b.dataset.avfield === "lips") {
+    avMood = "calmo";
+    document.querySelectorAll("[data-avmood]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.avmood === "calmo"));
+  }
   const scroll = $("avOpts").scrollTop;
   renderAvatarEditor();
   $("avOpts").scrollTop = scroll;
